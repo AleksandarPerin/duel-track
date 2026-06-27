@@ -1,13 +1,14 @@
 # Product Requirements Document: DuelTrack — MtG Tournament Manager
 
-**Version:** 1.1 (Reviewed)
-**Status:** Final Draft
-**Date:** 2026-05-24
+**Version:** 1.2 (Phase 1 Approved)
+**Status:** Approved for Phase 1 Development
+**Date:** 2026-06-27
 **Owner:** Product Team
 **Reviewed by:** Engineering / Domain Review
 
-> **Review changelog (v1.0 → v1.1):**
-> All changes from the original draft are summarised in [Appendix A — Review Notes](#appendix-a--review-notes).
+> **Review changelog:**
+> - **v1.0 → v1.1:** Domain corrections, implementation fixes, and completeness additions — see [Appendix A](#appendix-a--review-notes).
+> - **v1.1 → v1.2:** All Phase 1 open questions resolved (OQ-02, OQ-04, OQ-05, OQ-06, OQ-08) — see [Appendix B](#appendix-b--v12-open-question-resolutions). Stale v1.0 draft (`PRD.md`) retired.
 
 ---
 
@@ -809,18 +810,18 @@ CREATE INDEX idx_audit_tournament ON audit_log(tournament_id, created_at DESC);
 
 ## 10. Open Questions
 
-| # | Question | Owner | Target Date |
-|---|----------|-------|-------------|
-| OQ-01 | Should DuelTrack pursue formal WPN integration for sanctioned event reporting, or remain a complementary third-party tool? | Product | Phase 2 planning |
-| OQ-02 | What is the pricing model? Freemium (free for ≤ 32 players; paid tiers for larger events)? Subscription per organizer? | Business | Before Phase 1 launch |
-| OQ-03 | Should the pairing engine support draft-specific pod seating (assigning players to draft pods for the drafting phase, separate from Swiss pairings)? If so, is pod seating a separate feature or integrated into tournament creation? | Engineering / Product | Phase 2 planning |
-| OQ-04 | The WPN player number field replaces the retired DCI number. Should all UI label this field "WPN Player Number" or keep it generic as "Player Number" for flexibility with non-WPN events? | Product | Phase 1 design |
-| OQ-05 | What GDPR/CCPA controls are required for storing player name and email? Is a privacy policy, data-deletion flow (right to erasure), and data-processing agreement with the hosting provider required before Phase 1 launch? | Legal / Engineering | Before Phase 1 launch |
-| OQ-06 | Should tournament standings and player profiles default to public, or should TOs control visibility per-event (e.g., private events for invite-only tournaments)? | Product | Phase 1 design |
-| OQ-07 | What is the conflict-resolution UX when two judges simultaneously submit different results for the same table? The proposed approach (optimistic locking + TO alert) is captured in the risks table; this question covers the UI flow for the TO resolving the conflict. | Product / Engineering | Phase 2 design |
-| OQ-08 | Is offline-first result entry (PWA with sync queue) required for Phase 1 or acceptable as a Phase 3 feature? Venues with poor WiFi are a stated pain point (Problem Statement row 6). The team should decide whether this gap is acceptable at launch. | Engineering / Product | Phase 1 scoping |
-| OQ-09 | Is there appetite for a white-label offering for tournament circuits that want their own branding? | Business | Phase 3 planning |
-| OQ-10 | Should Commander/multiplayer formats (4-player pods) be in scope? Note: pod-format pairing is fundamentally different from 1v1 Swiss (pods are not pairs; tiebreaker rules differ substantially) and would require a separate domain specification. | Product | Phase 2 planning |
+| # | Question | Owner | Status |
+|---|----------|-------|--------|
+| OQ-01 | Should DuelTrack pursue formal WPN integration for sanctioned event reporting, or remain a complementary third-party tool? | Product | Open — Phase 2 |
+| OQ-02 | What is the pricing model? | Business | **Resolved: Free at launch** — see Appendix B |
+| OQ-03 | Should the pairing engine support draft-specific pod seating (assigning players to draft pods for the drafting phase, separate from Swiss pairings)? If so, is pod seating a separate feature or integrated into tournament creation? | Engineering / Product | Open — Phase 2 |
+| OQ-04 | The WPN player number field replaces the retired DCI number. Should all UI label this field "WPN Player Number" or keep it generic as "Player Number" for flexibility with non-WPN events? | Product | **Resolved** — see Appendix B |
+| OQ-05 | What GDPR/CCPA controls are required for storing player name and email? Is a privacy policy, data-deletion flow (right to erasure), and data-processing agreement with the hosting provider required before Phase 1 launch? | Legal / Engineering | **Resolved (minimum baseline defined)** — see Appendix B |
+| OQ-06 | Should tournament standings and player profiles default to public, or should TOs control visibility per-event (e.g., private events for invite-only tournaments)? | Product | **Resolved** — see Appendix B |
+| OQ-07 | What is the conflict-resolution UX when two judges simultaneously submit different results for the same table? The proposed approach (optimistic locking + TO alert) is captured in the risks table; this question covers the UI flow for the TO resolving the conflict. | Product / Engineering | Open — Phase 2 |
+| OQ-08 | Is offline-first result entry (PWA with sync queue) required for Phase 1 or acceptable as a Phase 3 feature? Venues with poor WiFi are a stated pain point (Problem Statement row 6). | Engineering / Product | **Resolved: Deferred to Phase 3** — see Appendix B |
+| OQ-09 | Is there appetite for a white-label offering for tournament circuits that want their own branding? | Business | Open — Phase 3 |
+| OQ-10 | Should Commander/multiplayer formats (4-player pods) be in scope? Note: pod-format pairing is fundamentally different from 1v1 Swiss and would require a separate domain specification. | Product | Open — Phase 2 |
 
 ---
 
@@ -897,6 +898,71 @@ The following corrections and additions were made during the engineering/domain 
 | OQ-07 added | Addresses the conflict-resolution UX omitted from v1.0's open questions |
 | OQ-08 elevated | v1.0 deferred offline PWA to Phase 3 with no discussion. Offline resilience is listed as a core pain point (Problem Statement, row 6) and the deferral decision should be deliberate and explicitly recorded |
 | Phase 2 includes conflict detection scope | Derived from the new risk; development team needs to know this is a Phase 2 commitment |
+
+---
+
+---
+
+## Appendix B — v1.2 Open Question Resolutions
+
+### B.1 OQ-04 — Player Number Field Label
+
+**Decision:** Label the field **"Player Number"** (generic) in all UI and schema column names.
+
+**Rationale:** "WPN Player Number" is WPN-specific and would be meaningless or misleading for organizers running non-WPN events (e.g., store championships, regional circuits not enrolled in WPN). A generic label keeps the field usable across all event types. Internally, the field is stored as `wpn_number` in the schema (already set in v1.1), which is sufficient for future WPN-specific feature work.
+
+**Implementation impact:** UI label only. Schema column name `wpn_number` retained as-is for future WPN integration work.
+
+---
+
+### B.2 OQ-05 — GDPR/CCPA Minimum Compliance Baseline (Phase 1)
+
+**Decision:** Phase 1 must ship with the following minimum controls before accepting real player data:
+
+1. **Privacy Policy** — A hosted privacy policy page (linked from registration UI) disclosing: what PII is collected (display name, optional email), why (event management), retention period, and right to erasure.
+2. **Data Deletion Endpoint** — A `DELETE /account` endpoint (authenticated) and a TO-accessible `DELETE /tournaments/:id/players/:id/guest` route that permanently removes name and email from `tournament_players` and replaces them with a tombstone (`[deleted]`). Downstream standings and audit log entries retain anonymised identifiers only.
+3. **Minimal PII Scope** — Already enforced by spec: only display name and optional email are stored. No payment data, no IP addresses in application logs beyond 30-day rolling retention.
+4. **Data Processing Agreement** — Required with the hosting provider (Railway/Render/equivalent) before storing real user data. Engineering to confirm DPA is in place before Phase 1 alpha.
+
+**What is NOT required for Phase 1:** Cookie consent banner (no tracking cookies in Phase 1), right-to-portability export, explicit consent flows beyond the privacy policy link at registration.
+
+**Owner for sign-off:** Legal must review and approve the privacy policy copy before Phase 1 launch. Engineering implements the deletion endpoint.
+
+---
+
+### B.3 OQ-06 — Standings and Profile Visibility Defaults
+
+**Decision:**
+
+- **Standings per round:** Hidden by default; TO explicitly publishes each round's standings via the existing `is_published` flag (already in data model). This is the correct default for competitive events where early standings could influence player behaviour.
+- **Pairings:** Published automatically when the TO starts a round (no separate publish step needed — pairings must be visible for the event to proceed).
+- **Player profiles (Phase 2):** Default to public. Individual players can set their profile to private (PRF-07). TOs cannot make a player's profile private on their behalf, but a private profile is still visible to the TO role within their own tournament context.
+- **Per-event private mode (Phase 3):** Invite-only / private tournament mode (entire event hidden from public tournament listing) is deferred to Phase 3.
+
+**Implementation impact:** No schema changes required. The TO dashboard round-advance flow must include a "Publish standings" toggle, distinct from "Advance round," for clarity.
+
+---
+
+### B.4 OQ-08 — Offline-First Result Entry
+
+**Decision: Deferred to Phase 3.** Rationale for the deferral:
+
+- Phase 1 targets alpha events run by internal testers in controlled venues. Connectivity is assumed sufficient.
+- Implementing a full PWA sync queue correctly (conflict resolution, queue ordering, partial-sync recovery) is a significant engineering investment that would delay Phase 1 by 3–4 weeks.
+- The offline pain point (Problem Statement row 6) is real but addressable for Phase 1 by recommending organizers run a local hotspot from their phone.
+- **Mitigation in Phase 1:** The results entry form must display clearly if the network request failed and allow re-submission without data loss. This is minimal but prevents silent data loss without the full offline-sync infrastructure.
+
+This decision is **recorded and deliberate.** It should be revisited at Phase 2 planning with LGS feedback on venue connectivity.
+
+---
+
+### B.5 OQ-02 — Pricing Model
+
+**Decision: Free at launch.** DuelTrack will launch with no pricing tiers, no gating, and no payment integration. All features available in each phase are accessible to all users at no cost.
+
+**Rationale:** Maximising early adoption and organizer trust is the priority. Introducing pricing friction before product-market fit is established would slow the alpha/beta feedback loop. Tiers can be introduced post-Phase 2 once retention data supports a monetisation model.
+
+**Engineering impact:** None — no `subscription_tier` column, no gating logic. This decision eliminates the billing complexity that would otherwise have been scoped into Phase 2.
 
 ---
 
