@@ -11,6 +11,11 @@ function parseUUID(v: string): string | null {
   return UUID_RE.test(v) ? v : null;
 }
 
+const RESULT_RATE_LIMIT = {
+  max: Number(process.env.RESULT_RATE_LIMIT_MAX ?? 120),
+  timeWindow: Number(process.env.RESULT_RATE_LIMIT_WINDOW_MS ?? 60_000),
+};
+
 function handleError(err: unknown, reply: FastifyReply) {
   if (!(err instanceof AppError)) throw err;
   const map: Record<string, number> = {
@@ -19,6 +24,7 @@ function handleError(err: unknown, reply: FastifyReply) {
     BYE_RESULT: 422,
     RESULT_ALREADY_ENTERED: 409,
     FORBIDDEN: 403,
+    INVALID_ELIMINATION_RESULT: 422,
   };
   return reply.code(map[err.code] ?? 500).send({ error: err.code, message: err.message });
 }
@@ -60,6 +66,7 @@ const resultRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { id: string; pairingId: string } }>(
     '/:id/pairings/:pairingId/result',
     {
+      config: { rateLimit: RESULT_RATE_LIMIT },
       preHandler: [authenticate, fastify.csrfProtection],
       handler: async (request, reply) => {
         const id = parseUUID(request.params.id);

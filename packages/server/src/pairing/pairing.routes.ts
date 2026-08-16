@@ -4,6 +4,11 @@ import { AppError } from '../errors/AppError';
 import { writeAuditLog } from '../audit/audit.service';
 import { startTournament, getRoundPairings, advanceRound, forceAdvanceRound } from './pairing.service';
 
+const PAIRING_RATE_LIMIT = {
+  max: Number(process.env.PAIRING_RATE_LIMIT_MAX ?? 30),
+  timeWindow: Number(process.env.PAIRING_RATE_LIMIT_WINDOW_MS ?? 60_000),
+};
+
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function parseUUID(v: string): string | null {
@@ -14,14 +19,12 @@ function handleError(err: unknown, reply: FastifyReply) {
   if (!(err instanceof AppError)) throw err;
   const map: Record<string, number> = {
     TOURNAMENT_NOT_FOUND: 404,
-    ROUND_NOT_FOUND: 404,
     FORBIDDEN: 403,
     TOURNAMENT_NOT_STARTABLE: 409,
     INSUFFICIENT_PLAYERS: 422,
     TOURNAMENT_NOT_IN_PROGRESS: 409,
     ROUND_NOT_ACTIVE: 409,
     RESULTS_INCOMPLETE: 422,
-    PLAYER_NOT_ACTIVE: 422,
     INSUFFICIENT_PLAYERS_FOR_CUT: 422,
     INVALID_ELIMINATION_RESULT: 422,
     UNSUPPORTED_IN_ELIMINATION: 409,
@@ -44,6 +47,7 @@ async function safeAudit(
 const pairingRoutes: FastifyPluginAsync = async (fastify) => {
   // Start tournament and generate round 1 pairings
   fastify.post<{ Params: { id: string } }>('/:id/start', {
+    config: { rateLimit: PAIRING_RATE_LIMIT },
     preHandler: [authenticate, fastify.csrfProtection],
     handler: async (request, reply) => {
       const id = parseUUID(request.params.id);
@@ -76,6 +80,7 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Advance to the next round (close current round, compute standings, generate next pairings)
   fastify.post<{ Params: { id: string } }>('/:id/advance', {
+    config: { rateLimit: PAIRING_RATE_LIMIT },
     preHandler: [authenticate, fastify.csrfProtection],
     handler: async (request, reply) => {
       const id = parseUUID(request.params.id);
@@ -120,6 +125,7 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
 
   // Force-advance: auto-enter double_loss for all incomplete pairings, then advance
   fastify.post<{ Params: { id: string }; Body: unknown }>('/:id/force-advance', {
+    config: { rateLimit: PAIRING_RATE_LIMIT },
     preHandler: [authenticate, fastify.csrfProtection],
     handler: async (request, reply) => {
       const id = parseUUID(request.params.id);
@@ -170,6 +176,7 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.get<{ Params: { id: string; roundNumber: string } }>(
     '/:id/rounds/:roundNumber/pairings',
     {
+      config: { rateLimit: PAIRING_RATE_LIMIT },
       preHandler: authenticate,
       handler: async (request, reply) => {
         const id = parseUUID(request.params.id);

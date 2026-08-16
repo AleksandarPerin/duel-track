@@ -33,7 +33,9 @@ export async function dropPlayer(
     const t = tRows[0];
     if (!t) throw new AppError('TOURNAMENT_NOT_FOUND', 'Tournament not found');
     if (t.organizer_id !== organizerId) throw new AppError('FORBIDDEN', 'Only the organizer can drop players');
-    if (t.status !== 'in_progress') throw new AppError('TOURNAMENT_NOT_IN_PROGRESS', 'Tournament is not in progress');
+    if (t.status !== 'in_progress' && t.status !== 'top_cut') {
+      throw new AppError('TOURNAMENT_NOT_IN_PROGRESS', 'Tournament is not in progress');
+    }
 
     const { rows: pRows } = await client.query<{ id: string; status: string }>(
       `SELECT id, status FROM tournament_players

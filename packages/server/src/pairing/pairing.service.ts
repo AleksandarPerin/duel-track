@@ -390,6 +390,7 @@ export async function forceAdvanceRound(
     // Per PRD TRN-05: if exactly one player in a match is responsible, they receive the
     // 0-2 match loss and their opponent gets a 2-0 win. Both responsible (or neither) → double_loss.
     const responsible = new Set(responsiblePlayerIds);
+    let forcedCount = 0;
     for (const p of incomplete) {
       const r1 = responsible.has(p.player1_id);
       const r2 = responsible.has(p.player2_id);
@@ -398,18 +399,19 @@ export async function forceAdvanceRound(
                     : 'double_loss';
       const p1wins = outcome === 'player1_win' ? 2 : 0;
       const p2wins = outcome === 'player2_win' ? 2 : 0;
-      await client.query(
+      const ins = await client.query(
         `INSERT INTO results
            (pairing_id, player1_game_wins, player2_game_wins, games_drawn, outcome, entered_by)
          VALUES ($1, $2, $3, 0, $4, $5)
          ON CONFLICT (pairing_id) DO NOTHING`,
         [p.id, p1wins, p2wins, outcome, organizerId],
       );
+      forcedCount += ins.rowCount ?? 0;
     }
 
     const advResult = await closeRoundAndContinue(client, tournamentId, activeRoundId, currentRound, totalRounds, format, topCut);
     await client.query('COMMIT');
-    return { ...advResult, forced_results: incomplete.length };
+    return { ...advResult, forced_results: forcedCount };
   } catch (err) {
     originalError = err;
     try { await client.query('ROLLBACK'); } catch (e) { console.error('ROLLBACK failed in forceAdvanceRound', e); }

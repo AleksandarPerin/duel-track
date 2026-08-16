@@ -56,7 +56,7 @@ export async function loadAllPlayers(
   client: PoolClient,
 ): Promise<PlayerInfo[]> {
   const { rows } = await client.query<{ id: string; status: string }>(
-    `SELECT id, status FROM tournament_players WHERE tournament_id = $1`,
+    `SELECT id, status FROM tournament_players WHERE tournament_id = $1 ORDER BY sort_seed`,
     [tournamentId],
   );
   return rows.map((r) => ({ id: r.id, is_active: r.status === 'active' }));
