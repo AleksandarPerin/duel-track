@@ -32,11 +32,17 @@ async function safeAudit(
   }
 }
 
+const STANDINGS_RATE_LIMIT = {
+  max: Number(process.env.STANDINGS_RATE_LIMIT_MAX ?? 60),
+  timeWindow: Number(process.env.STANDINGS_RATE_LIMIT_WINDOW_MS ?? 60_000),
+};
+
 const standingsRoutes: FastifyPluginAsync = async (fastify) => {
-  // Get standings for a specific round
+  // Get standings for a specific round (organizer sees all; others only see published)
   fastify.get<{ Params: { id: string; roundNumber: string } }>(
     '/:id/rounds/:roundNumber/standings',
     {
+      config: { rateLimit: STANDINGS_RATE_LIMIT },
       preHandler: authenticate,
       handler: async (request, reply) => {
         const id = parseUUID(request.params.id);
@@ -45,8 +51,18 @@ const standingsRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.code(400).send({ error: 'INVALID_PARAMS' });
         }
         try {
+          const { rows: tRows } = await pool.query<{ organizer_id: string }>(
+            'SELECT organizer_id FROM tournaments WHERE id = $1', [id],
+          );
+          if (!tRows[0]) return reply.code(404).send({ error: 'TOURNAMENT_NOT_FOUND' });
+          const isOrganizer = tRows[0].organizer_id === request.user!.id;
+
           const standings = await getRoundStandings(id, rn);
           if (standings.length === 0) {
+            return reply.code(404).send({ error: 'STANDINGS_NOT_FOUND' });
+          }
+          // Non-organizers can only see published standings (RES-05)
+          if (!isOrganizer && !standings[0]!.is_published) {
             return reply.code(404).send({ error: 'STANDINGS_NOT_FOUND' });
           }
           return reply.send(standings);
@@ -61,6 +77,7 @@ const standingsRoutes: FastifyPluginAsync = async (fastify) => {
   fastify.post<{ Params: { id: string; roundNumber: string } }>(
     '/:id/rounds/:roundNumber/publish',
     {
+      config: { rateLimit: STANDINGS_RATE_LIMIT },
       preHandler: [authenticate, fastify.csrfProtection],
       handler: async (request, reply) => {
         const id = parseUUID(request.params.id);

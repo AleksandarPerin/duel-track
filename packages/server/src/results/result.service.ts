@@ -18,13 +18,17 @@ export async function enterResult(
       id: string;
       is_bye: boolean;
       round_status: string;
+      round_phase: string;
       tournament_id: string;
       tournament_status: string;
+      organizer_id: string;
     }>(
       `SELECT p.id, p.is_bye,
               r.status AS round_status,
+              r.phase  AS round_phase,
               t.id     AS tournament_id,
-              t.status AS tournament_status
+              t.status AS tournament_status,
+              t.organizer_id
        FROM pairings p
        JOIN rounds r ON r.id = p.round_id
        JOIN tournaments t ON t.id = r.tournament_id
@@ -36,11 +40,26 @@ export async function enterResult(
     if (!pairing) {
       throw new AppError('PAIRING_NOT_FOUND', 'Pairing not found or round is not active');
     }
-    if (pairing.tournament_status !== 'in_progress') {
+    // C1: top_cut tournaments are in 'top_cut' status during elimination rounds
+    if (pairing.tournament_status !== 'in_progress' && pairing.tournament_status !== 'top_cut') {
       throw new AppError('TOURNAMENT_NOT_IN_PROGRESS', 'Tournament is not in progress');
+    }
+    // C2: only the organizer may enter results (judge role deferred to Phase 2)
+    if (pairing.organizer_id !== actorId) {
+      throw new AppError('FORBIDDEN', 'Only the tournament organizer can enter results');
     }
     if (pairing.is_bye) {
       throw new AppError('BYE_RESULT', 'Cannot enter a result for a bye pairing');
+    }
+    // H2: draws and double-losses are not valid outcomes in elimination rounds
+    if (pairing.round_phase === 'elimination') {
+      const decisive = data.outcome === 'player1_win' || data.outcome === 'player2_win';
+      if (!decisive) {
+        throw new AppError(
+          'INVALID_ELIMINATION_RESULT',
+          'Only player1_win or player2_win are valid outcomes in elimination rounds',
+        );
+      }
     }
 
     // INSERT ON CONFLICT handles duplicate detection atomically — no SELECT needed.

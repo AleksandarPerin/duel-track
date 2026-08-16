@@ -14,7 +14,8 @@ import publicRoutes from './public/public.routes';
 
 async function checkWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
   const timeout = new Promise<false>((resolve) => setTimeout(() => resolve(false), ms));
-  return Promise.race([p.then(() => true as const), timeout]);
+  // Second .then() arg suppresses rejections so a DB-down error returns false, not a throw
+  return Promise.race([p.then(() => true as const, () => false as const), timeout]);
 }
 
 export async function buildApp() {
@@ -47,6 +48,12 @@ export async function buildApp() {
   await app.register(rateLimit, { global: false, redis });
 
   await app.register(csrfProtection, { sessionPlugin: '@fastify/cookie' });
+
+  // Global error handler: log internals server-side; return a generic 500 to callers.
+  app.setErrorHandler((error, request, reply) => {
+    request.log.error({ err: error }, 'Unhandled route error');
+    reply.code(500).send({ error: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
+  });
 
   // ── routes ──────────────────────────────────────────────────────────────
   // Health check returns only status; internal breakdown is server-side logged only.
