@@ -20,6 +20,7 @@ import {
   reorderSeeds,
   importPlayersFromCsv,
 } from './tournament.service';
+import { dropPlayer } from './player.drop.service';
 
 const TOURNAMENT_RATE_LIMIT = {
   max: Number(process.env.TOURNAMENT_RATE_LIMIT_MAX ?? 60),
@@ -57,7 +58,9 @@ function handleServiceError(err: unknown, reply: FastifyReply) {
     USER_NOT_FOUND: 404,
     FORBIDDEN: 403,
     TOURNAMENT_NOT_EDITABLE: 409,
+    TOURNAMENT_NOT_IN_PROGRESS: 409,
     PLAYER_ALREADY_REGISTERED: 409,
+    PLAYER_NOT_ACTIVE: 409,
     DUPLICATE_SEEDS: 422,
     INVALID_SEED_LIST: 422,
     INVALID_CSV: 400,
@@ -220,6 +223,38 @@ const tournamentRoutes: FastifyPluginAsync = async (fastify) => {
         });
 
         return reply.code(204).send();
+      } catch (err) {
+        return handleServiceError(err, reply);
+      }
+    },
+  });
+
+  // Drop a player mid-tournament (auto-resolves open match as loss for dropped player)
+  fastify.patch<{ Params: { id: string; playerId: string } }>('/:id/players/:playerId/drop', {
+    config: { rateLimit: TOURNAMENT_RATE_LIMIT },
+    preHandler: [authenticate, fastify.csrfProtection],
+    handler: async (request, reply) => {
+      const id = parseId(request.params.id);
+      const playerId = parseId(request.params.playerId);
+      if (!id || !playerId) return reply.code(400).send({ error: 'INVALID_ID' });
+
+      const user = request.user!;
+      try {
+        const result = await dropPlayer(id, playerId, user.id);
+
+        await safeAuditLog(request.log, {
+          tournamentId: id,
+          actorId: user.id,
+          action: 'player.dropped',
+          entityType: 'tournament_player',
+          entityId: playerId,
+          detail: {
+            drop_round: result.drop_round,
+            auto_result: result.auto_result,
+          },
+        });
+
+        return reply.send(result);
       } catch (err) {
         return handleServiceError(err, reply);
       }
