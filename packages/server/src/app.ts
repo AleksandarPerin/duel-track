@@ -10,6 +10,7 @@ import tournamentRoutes from './tournaments/tournament.routes';
 import pairingRoutes from './pairing/pairing.routes';
 import resultRoutes from './results/result.routes';
 import standingsRoutes from './standings/standings.routes';
+import publicRoutes from './public/public.routes';
 
 async function checkWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
   const timeout = new Promise<false>((resolve) => setTimeout(() => resolve(false), ms));
@@ -26,6 +27,9 @@ export async function buildApp() {
 
   const app = Fastify({
     logger: { level: process.env.NODE_ENV === 'test' ? 'silent' : 'info' },
+    // Trust N upstream proxy hops so request.ip reflects the real client IP for rate limiting.
+    // Default 1 for a single LB; set TRUST_PROXY_HOPS=0 to disable in local dev.
+    trustProxy: Number(process.env.TRUST_PROXY_HOPS ?? 1),
   });
 
   // Wire pool errors through the structured Fastify logger
@@ -40,7 +44,7 @@ export async function buildApp() {
     methods: ['GET', 'POST', 'PATCH', 'DELETE', 'OPTIONS'],
   });
 
-  await app.register(rateLimit, { global: false });
+  await app.register(rateLimit, { global: false, redis });
 
   await app.register(csrfProtection, { sessionPlugin: '@fastify/cookie' });
 
@@ -67,6 +71,7 @@ export async function buildApp() {
   await app.register(pairingRoutes, { prefix: '/api/tournaments' });
   await app.register(resultRoutes, { prefix: '/api/tournaments' });
   await app.register(standingsRoutes, { prefix: '/api/tournaments' });
+  await app.register(publicRoutes, { prefix: '/api/public' });
 
   return app;
 }
