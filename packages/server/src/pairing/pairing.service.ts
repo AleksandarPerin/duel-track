@@ -5,6 +5,7 @@ import { generatePairings, assignTables } from './engine';
 import type { PlayerRecord, PriorMatch } from './types';
 import type { Round, Pairing } from '@dueltrack/shared';
 import { loadMatchRecords, loadAllPlayers, writeStandings } from '../standings/standings.service';
+import { generateEliminationRound1, advanceEliminationRound } from './elimination.service';
 
 const MIN_PLAYERS = 8;
 const LIMITED_FORMATS = new Set(['draft', 'sealed']);
@@ -187,7 +188,7 @@ export type AdvanceRoundResult =
   | { completed: true; roundNumber: number }
   | { completed: false; round: Round; pairings: Pairing[]; warning?: string };
 
-// Shared inner logic: close round → standings → generate next round or complete tournament.
+// Shared inner logic: close Swiss round → standings → generate next Swiss round or transition to top cut / complete.
 // Caller is responsible for BEGIN/COMMIT/ROLLBACK; this function does NOT commit.
 async function closeRoundAndContinue(
   client: PoolClient,
@@ -196,6 +197,7 @@ async function closeRoundAndContinue(
   currentRound: number,
   totalRounds: number,
   format: string,
+  topCut: number,
 ): Promise<AdvanceRoundResult> {
   await client.query(
     `UPDATE rounds SET status = 'completed', ended_at = NOW() WHERE id = $1`,
@@ -219,6 +221,10 @@ async function closeRoundAndContinue(
   await writeStandings(tournamentId, currentRound, allPlayers, records, client);
 
   if (currentRound >= totalRounds) {
+    if (topCut > 0) {
+      // Transition to single-elimination bracket seeded by final Swiss standings (PAR-10)
+      return generateEliminationRound1(client, tournamentId, currentRound, topCut, format, currentRound + 1);
+    }
     await client.query(`UPDATE tournaments SET status = 'completed' WHERE id = $1`, [tournamentId]);
     return { completed: true, roundNumber: currentRound };
   }
@@ -276,29 +282,45 @@ async function lockTournamentAndRound(
   client: PoolClient,
   tournamentId: string,
   organizerId: string,
-): Promise<{ currentRound: number; totalRounds: number; format: string; activeRoundId: string }> {
+): Promise<{
+  currentRound: number;
+  totalRounds: number;
+  format: string;
+  activeRoundId: string;
+  topCut: number;
+  activeRoundPhase: string;
+}> {
   const { rows: tRows } = await client.query<{
     organizer_id: string; status: string; format: string;
-    total_rounds: string; current_round: string;
+    total_rounds: string; current_round: string; top_cut: string;
   }>(
-    `SELECT organizer_id, status, format, total_rounds, current_round
+    `SELECT organizer_id, status, format, total_rounds, current_round, top_cut
      FROM tournaments WHERE id = $1 FOR UPDATE`,
     [tournamentId],
   );
   const t = tRows[0];
   if (!t) throw new AppError('TOURNAMENT_NOT_FOUND', 'Tournament not found');
   if (t.organizer_id !== organizerId) throw new AppError('FORBIDDEN', 'Only the organizer can advance the round');
-  if (t.status !== 'in_progress') throw new AppError('TOURNAMENT_NOT_IN_PROGRESS', 'Tournament is not in progress');
+  if (t.status !== 'in_progress' && t.status !== 'top_cut') {
+    throw new AppError('TOURNAMENT_NOT_IN_PROGRESS', 'Tournament is not in progress');
+  }
 
   const currentRound = Number(t.current_round);
-  const { rows: rRows } = await client.query<{ id: string }>(
-    `SELECT id FROM rounds
+  const { rows: rRows } = await client.query<{ id: string; phase: string }>(
+    `SELECT id, phase FROM rounds
      WHERE tournament_id = $1 AND round_number = $2 AND status = 'active' FOR UPDATE`,
     [tournamentId, currentRound],
   );
   if (!rRows[0]) throw new AppError('ROUND_NOT_ACTIVE', 'No active round found for this tournament');
 
-  return { currentRound, totalRounds: Number(t.total_rounds), format: t.format, activeRoundId: rRows[0].id };
+  return {
+    currentRound,
+    totalRounds: Number(t.total_rounds),
+    format: t.format,
+    activeRoundId: rRows[0].id,
+    topCut: Number(t.top_cut),
+    activeRoundPhase: rRows[0].phase,
+  };
 }
 
 export async function advanceRound(
@@ -309,7 +331,7 @@ export async function advanceRound(
   let originalError: unknown;
   try {
     await client.query('BEGIN');
-    const { currentRound, totalRounds, format, activeRoundId } =
+    const { currentRound, totalRounds, format, activeRoundId, topCut, activeRoundPhase } =
       await lockTournamentAndRound(client, tournamentId, organizerId);
 
     const { rows: missing } = await client.query<{ count: string }>(
@@ -322,7 +344,10 @@ export async function advanceRound(
       throw new AppError('RESULTS_INCOMPLETE', `${missing[0]!.count} pairing(s) still need results`);
     }
 
-    const result = await closeRoundAndContinue(client, tournamentId, activeRoundId, currentRound, totalRounds, format);
+    const result = activeRoundPhase === 'elimination'
+      ? await advanceEliminationRound(client, tournamentId, activeRoundId, currentRound, format, totalRounds)
+      : await closeRoundAndContinue(client, tournamentId, activeRoundId, currentRound, totalRounds, format, topCut);
+
     await client.query('COMMIT');
     return result;
   } catch (err) {
@@ -343,8 +368,12 @@ export async function forceAdvanceRound(
   let originalError: unknown;
   try {
     await client.query('BEGIN');
-    const { currentRound, totalRounds, format, activeRoundId } =
+    const { currentRound, totalRounds, format, activeRoundId, topCut, activeRoundPhase } =
       await lockTournamentAndRound(client, tournamentId, organizerId);
+
+    if (activeRoundPhase === 'elimination') {
+      throw new AppError('UNSUPPORTED_IN_ELIMINATION', 'Force-advance is not supported during elimination rounds');
+    }
 
     // Fetch incomplete non-bye pairings with player IDs to determine fault
     const { rows: incomplete } = await client.query<{
@@ -378,7 +407,7 @@ export async function forceAdvanceRound(
       );
     }
 
-    const advResult = await closeRoundAndContinue(client, tournamentId, activeRoundId, currentRound, totalRounds, format);
+    const advResult = await closeRoundAndContinue(client, tournamentId, activeRoundId, currentRound, totalRounds, format, topCut);
     await client.query('COMMIT');
     return { ...advResult, forced_results: incomplete.length };
   } catch (err) {

@@ -22,6 +22,10 @@ function handleError(err: unknown, reply: FastifyReply) {
     ROUND_NOT_ACTIVE: 409,
     RESULTS_INCOMPLETE: 422,
     PLAYER_NOT_ACTIVE: 422,
+    INSUFFICIENT_PLAYERS_FOR_CUT: 422,
+    INVALID_ELIMINATION_RESULT: 422,
+    UNSUPPORTED_IN_ELIMINATION: 409,
+    ELIMINATION_BRACKET_CORRUPT: 500,
   };
   return reply.code(map[err.code] ?? 500).send({ error: err.code, message: err.message });
 }
