@@ -3,10 +3,16 @@ import { pool } from '../db/pool';
 export type AuditAction =
   | 'tournament.created'
   | 'tournament.updated'
+  | 'tournament.started'
   | 'player.added'
   | 'player.removed'
   | 'players.imported'
-  | 'player.seeds_reordered';
+  | 'player.seeds_reordered'
+  | 'result.entered'
+  | 'round.completed'
+  | 'round.force_advanced'
+  | 'standings.published'
+  | 'player.dropped';
 
 export async function writeAuditLog(params: {
   tournamentId: string;

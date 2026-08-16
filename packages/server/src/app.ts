@@ -7,6 +7,9 @@ import { pool, setPoolLogger } from './db/pool';
 import { redis } from './db/redis';
 import authRoutes from './auth/auth.routes';
 import tournamentRoutes from './tournaments/tournament.routes';
+import pairingRoutes from './pairing/pairing.routes';
+import resultRoutes from './results/result.routes';
+import standingsRoutes from './standings/standings.routes';
 
 async function checkWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
   const timeout = new Promise<false>((resolve) => setTimeout(() => resolve(false), ms));
@@ -61,6 +64,9 @@ export async function buildApp() {
 
   await app.register(authRoutes, { prefix: '/api/auth' });
   await app.register(tournamentRoutes, { prefix: '/api/tournaments' });
+  await app.register(pairingRoutes, { prefix: '/api/tournaments' });
+  await app.register(resultRoutes, { prefix: '/api/tournaments' });
+  await app.register(standingsRoutes, { prefix: '/api/tournaments' });
 
   return app;
 }
