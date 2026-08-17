@@ -12,7 +12,9 @@ export type AuditAction =
   | 'round.completed'
   | 'round.force_advanced'
   | 'standings.published'
-  | 'player.dropped';
+  | 'player.dropped'
+  | 'judge.assigned'
+  | 'judge.removed';
 
 export async function writeAuditLog(params: {
   tournamentId: string;

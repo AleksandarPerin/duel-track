@@ -7,7 +7,7 @@
  * introduce mixed-case duplicates that evade the UNIQUE index.
  */
 exports.up = (pgm) => {
-  pgm.addConstraint('users', 'email_is_lowercase', 'email = lower(email)');
+  pgm.addConstraint('users', 'email_is_lowercase', 'CHECK (email = lower(email))');
 };
 
 exports.down = (pgm) => {

@@ -1,6 +1,7 @@
 export * from './types/user';
 export * from './types/tournament';
 export * from './types/player';
+export * from './types/judge';
 export * from './types/round';
 export * from './types/pairing';
 export * from './types/result';
