@@ -165,6 +165,138 @@ async function fetchPairings(roundId: string): Promise<PairingRow[]> {
   return rows;
 }
 
+interface TournamentMeta {
+  id: string;
+  name: string;
+  format: string;
+  rel_level: string;
+  venue: string | null;
+  scheduled_at: string | null;
+  status: string;
+  total_rounds: number;
+  top_cut: number;
+}
+
+interface RoundRow {
+  round_number: number;
+  phase: string;
+  status: string;
+  timer_minutes: number;
+  started_at: string | null;
+  ended_at: string | null;
+}
+
+interface ExportPairingRow {
+  round_number: number;
+  id: string;
+  table_number: number;
+  is_bye: boolean;
+  player1_id: string;
+  player1_name: string;
+  player2_id: string | null;
+  player2_name: string | null;
+}
+
+interface ExportResultRow {
+  pairing_id: string;
+  player1_game_wins: number;
+  player2_game_wins: number;
+  games_drawn: number;
+  outcome: string;
+  entered_at: string;
+}
+
+interface ExportStandingRow extends StandingRow {
+  round_number: number;
+}
+
+// Full tournament dump (all rounds, pairings, results, standings). Reuses the
+// same visibility rules as the individual per-round endpoints above — a round's
+// pairings only appear once active/completed, standings only once published —
+// so this route can never surface more than what's already independently
+// reachable one round at a time.
+async function fetchTournamentExport(id: string) {
+  const { rows: tRows } = await pool.query<TournamentMeta>(
+    `SELECT id, name, format, rel_level, venue, scheduled_at, status, total_rounds, top_cut
+     FROM tournaments WHERE id = $1 AND status NOT IN ('draft', 'registration')`,
+    [id],
+  );
+  const tournament = tRows[0];
+  if (!tournament) return null;
+
+  const { rows: rounds } = await pool.query<RoundRow>(
+    `SELECT round_number, phase, status, timer_minutes, started_at, ended_at
+     FROM rounds WHERE tournament_id = $1 AND status IN ('active', 'completed')
+     ORDER BY round_number`,
+    [id],
+  );
+
+  const { rows: pairings } = await pool.query<ExportPairingRow>(
+    `SELECT r.round_number, p.id, p.table_number, p.is_bye,
+            p.player1_id,
+            COALESCE(u1.display_name, tp1.guest_name) AS player1_name,
+            p.player2_id,
+            COALESCE(u2.display_name, tp2.guest_name) AS player2_name
+     FROM pairings p
+     JOIN rounds r ON r.id = p.round_id
+     JOIN tournament_players tp1 ON tp1.id = p.player1_id
+     LEFT JOIN users u1 ON u1.id = tp1.user_id
+     LEFT JOIN tournament_players tp2 ON tp2.id = p.player2_id
+     LEFT JOIN users u2 ON u2.id = tp2.user_id
+     WHERE r.tournament_id = $1 AND r.status IN ('active', 'completed')
+     ORDER BY r.round_number, p.table_number`,
+    [id],
+  );
+
+  const { rows: results } = await pool.query<ExportResultRow>(
+    `SELECT res.pairing_id, res.player1_game_wins, res.player2_game_wins,
+            res.games_drawn, res.outcome, res.entered_at
+     FROM results res
+     JOIN pairings p ON p.id = res.pairing_id
+     JOIN rounds r ON r.id = p.round_id
+     WHERE r.tournament_id = $1 AND r.status IN ('active', 'completed')`,
+    [id],
+  );
+  const resultsByPairing = new Map(
+    results.map(({ pairing_id, ...rest }) => [pairing_id, rest]),
+  );
+
+  const { rows: standings } = await pool.query<ExportStandingRow>(
+    `SELECT s.round_number, s.rank, s.player_id, s.match_points,
+            s.match_wins, s.match_losses, s.match_draws,
+            s.game_wins, s.game_losses, s.omw_percent, s.gw_percent, s.ogw_percent,
+            COALESCE(u.display_name, tp.guest_name) AS display_name,
+            tp.status
+     FROM standings s
+     JOIN tournament_players tp ON tp.id = s.player_id
+     LEFT JOIN users u ON u.id = tp.user_id
+     WHERE s.tournament_id = $1 AND s.is_published = TRUE
+     ORDER BY s.round_number, s.rank`,
+    [id],
+  );
+
+  return {
+    tournament,
+    rounds: rounds.map((round) => ({
+      round_number: round.round_number,
+      phase: round.phase,
+      status: round.status,
+      timer_minutes: round.timer_minutes,
+      started_at: round.started_at,
+      ended_at: round.ended_at,
+      pairings: pairings
+        .filter((p) => p.round_number === round.round_number)
+        .map(({ round_number: _round_number, ...p }) => ({
+          ...p,
+          result: resultsByPairing.get(p.id) ?? null,
+        })),
+      standings: standings
+        .filter((s) => s.round_number === round.round_number)
+        .map(({ round_number: _round_number, ...s }) => s),
+    })),
+  };
+}
+
 type Params = { id: string; roundNumber: string };
 
 const publicRoutes: FastifyPluginAsync = async (fastify) => {
@@ -275,6 +407,33 @@ const publicRoutes: FastifyPluginAsync = async (fastify) => {
           .header('Content-Disposition', `attachment; filename="pairings-round-${rn}.pdf"`)
           .header('Cache-Control', PUBLIC_CACHE)
           .send(pdf);
+      },
+    },
+  );
+
+  // Full tournament export (JSON) — no auth. Whole-tournament dump for
+  // compliance/record-keeping; every round applies the same visibility rules
+  // as the single-round endpoints above.
+  fastify.get<{ Params: { id: string } }>(
+    '/tournaments/:id/export/json',
+    {
+      config: { rateLimit: PUBLIC_RATE_LIMIT },
+      handler: async (request, reply) => {
+        const id = parseUUID(request.params.id);
+        if (!id) {
+          return reply.code(400).send({ error: 'INVALID_PARAMS' });
+        }
+
+        const data = await fetchTournamentExport(id);
+        if (!data) {
+          return reply.code(404).send({ error: 'NOT_FOUND', message: 'Tournament not found' });
+        }
+
+        return reply
+          .header('Content-Type', 'application/json; charset=utf-8')
+          .header('Content-Disposition', `attachment; filename="tournament-${id}.json"`)
+          .header('Cache-Control', PUBLIC_CACHE)
+          .send(data);
       },
     },
   );
