@@ -12,6 +12,7 @@ import {
 import {
   createTournament,
   getTournament,
+  openRegistration,
   updateTournament,
   listPlayers,
   addUserPlayer,
@@ -138,6 +139,33 @@ const tournamentRoutes: FastifyPluginAsync = async (fastify) => {
             detail: parsed.data as Record<string, unknown>,
           });
         }
+
+        return reply.send(tournament);
+      } catch (err) {
+        return handleServiceError(err, reply);
+      }
+    },
+  });
+
+  fastify.post<{ Params: { id: string } }>('/:id/registration/open', {
+    config: { rateLimit: TOURNAMENT_RATE_LIMIT },
+    preHandler: [authenticate, fastify.csrfProtection],
+    handler: async (request, reply) => {
+      const id = parseId(request.params.id);
+      if (!id) return reply.code(400).send({ error: 'INVALID_ID' });
+
+      const user = request.user!;
+      try {
+        const tournament = await openRegistration(id, user.id);
+
+        await safeAuditLog(request.log, {
+          tournamentId: id,
+          actorId: user.id,
+          action: 'tournament.updated',
+          entityType: 'tournament',
+          entityId: id,
+          detail: { status: tournament.status },
+        });
 
         return reply.send(tournament);
       } catch (err) {

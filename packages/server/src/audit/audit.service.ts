@@ -14,7 +14,9 @@ export type AuditAction =
   | 'standings.published'
   | 'player.dropped'
   | 'judge.assigned'
-  | 'judge.removed';
+  | 'judge.removed'
+  | 'registration.approved'
+  | 'registration.rejected';
 
 export async function writeAuditLog(params: {
   tournamentId: string;
