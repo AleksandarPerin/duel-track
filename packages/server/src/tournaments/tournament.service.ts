@@ -3,7 +3,7 @@ import { AppError } from '../errors/AppError';
 import type { Tournament, TournamentPlayerView } from '@dueltrack/shared';
 import type { CreateTournamentInput, UpdateTournamentInput } from './tournament.schemas';
 
-const EDITABLE_STATUSES = new Set(['draft', 'registration']);
+export const EDITABLE_STATUSES = new Set(['draft', 'registration']);
 const MAX_CSV_PLAYERS = 512;
 
 // ── RFC 4180 CSV parser ────────────────────────────────────────────────────
@@ -115,6 +115,34 @@ export async function getTournament(id: string): Promise<Tournament> {
   const row = rows[0];
   if (!row) throw new AppError('TOURNAMENT_NOT_FOUND', 'Tournament not found');
   return row;
+}
+
+// The 'registration' status exists in the schema for exactly this: opening
+// self-registration (Step 12) before the organizer starts the event. Only
+// reachable from 'draft' — once players are being added/paired, going back
+// isn't meaningful (startTournament already accepts 'draft' or
+// 'registration' as valid starting states, so this step is optional).
+export async function openRegistration(
+  id: string,
+  organizerId: string,
+): Promise<Tournament> {
+  const tournament = await getTournament(id);
+  if (tournament.organizer_id !== organizerId) {
+    throw new AppError('FORBIDDEN', 'Only the organizer can open registration');
+  }
+  if (tournament.status !== 'draft') {
+    throw new AppError('TOURNAMENT_NOT_EDITABLE', 'Registration can only be opened from draft status');
+  }
+
+  const { rows } = await pool.query<Tournament>(
+    `UPDATE tournaments SET status = 'registration' WHERE id = $1
+     RETURNING id, organizer_id, name, format, rel_level, venue, scheduled_at,
+               status, total_rounds, current_round, top_cut, created_at`,
+    [id],
+  );
+  const updated = rows[0];
+  if (!updated) throw new AppError('TOURNAMENT_NOT_FOUND', 'Tournament was deleted concurrently');
+  return updated;
 }
 
 export async function updateTournament(

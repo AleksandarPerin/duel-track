@@ -1,4 +1,4 @@
-import Fastify from 'fastify';
+import Fastify, { type FastifyError } from 'fastify';
 import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
@@ -11,6 +11,7 @@ import pairingRoutes from './pairing/pairing.routes';
 import resultRoutes from './results/result.routes';
 import standingsRoutes from './standings/standings.routes';
 import judgeRoutes from './judges/judge.routes';
+import registrationRoutes from './registrations/registration.routes';
 import publicRoutes from './public/public.routes';
 
 async function checkWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
@@ -50,9 +51,23 @@ export async function buildApp() {
 
   await app.register(csrfProtection, { sessionPlugin: '@fastify/cookie' });
 
-  // Global error handler: log internals server-side; return a generic 500 to callers.
-  app.setErrorHandler((error, request, reply) => {
+  // Global error handler: log internals server-side; return a generic 500 to
+  // callers for anything unexpected. Trusted Fastify plugin errors (CSRF
+  // rejection, rate limiting, body/schema validation) set their own safe 4xx
+  // statusCode + message and should pass through as-is rather than being
+  // flattened to a 500 — otherwise clients and monitoring can't tell "you
+  // were rate limited" or "bad CSRF token" apart from a real server fault.
+  // AppError (this app's own error type) never sets statusCode, so it's
+  // unaffected here — it's always caught explicitly by each route's handler
+  // before reaching this fallback.
+  app.setErrorHandler((error: FastifyError, request, reply) => {
     request.log.error({ err: error }, 'Unhandled route error');
+
+    const statusCode = error.statusCode;
+    if (statusCode !== undefined && statusCode >= 400 && statusCode < 500) {
+      return reply.code(statusCode).send({ error: error.code ?? 'REQUEST_ERROR', message: error.message });
+    }
+
     reply.code(500).send({ error: 'INTERNAL_ERROR', message: 'An unexpected error occurred' });
   });
 
@@ -80,6 +95,7 @@ export async function buildApp() {
   await app.register(resultRoutes, { prefix: '/api/tournaments' });
   await app.register(standingsRoutes, { prefix: '/api/tournaments' });
   await app.register(judgeRoutes, { prefix: '/api/tournaments' });
+  await app.register(registrationRoutes, { prefix: '/api/tournaments' });
   await app.register(publicRoutes, { prefix: '/api/public' });
 
   return app;

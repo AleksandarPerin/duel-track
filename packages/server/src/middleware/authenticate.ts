@@ -48,3 +48,36 @@ export async function authenticate(
 
   request.user = { id: sub, role, tokenVersion };
 }
+
+// Like authenticate(), but never rejects the request — used by routes that
+// accept both logged-in and anonymous callers (e.g. public self-registration,
+// where an authenticated submitter registers as themselves and an anonymous
+// one registers as a guest). Deliberately duplicates authenticate()'s token
+// verification instead of sharing it, so a future change to authenticate()'s
+// strict 401 behavior can't accidentally weaken this path or vice versa.
+export async function optionalAuthenticate(request: FastifyRequest): Promise<void> {
+  const token = request.cookies?.access_token;
+  if (!token) return;
+
+  const secret = process.env.JWT_SECRET!;
+  const { getUserById } = await import('../auth/auth.service.js');
+
+  let raw: unknown;
+  try {
+    raw = jwt.verify(token, secret, {
+      issuer: JWT_ISSUER,
+      audience: JWT_AUDIENCE,
+    });
+  } catch {
+    return;
+  }
+
+  const parsed = AccessTokenPayloadSchema.safeParse(raw);
+  if (!parsed.success) return;
+
+  const { sub, role, tokenVersion } = parsed.data;
+  const user = await getUserById(sub);
+  if (!user || user.token_version !== tokenVersion) return;
+
+  request.user = { id: sub, role, tokenVersion };
+}

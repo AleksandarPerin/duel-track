@@ -1,11 +1,33 @@
-import type { FastifyPluginAsync } from 'fastify';
+import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { pool } from '../db/pool';
+import { optionalAuthenticate } from '../middleware/authenticate';
+import { AppError } from '../errors/AppError';
+import { SubmitRegistrationSchema } from '../registrations/registration.schemas';
+import { getPublicTournamentInfo, submitRegistration } from '../registrations/registration.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROUND_RE = /^\d+$/;
+const TOKEN_RE = /^[0-9a-f]{64}$/i;
 
 function parseUUID(v: string): string | null {
   return UUID_RE.test(v) ? v : null;
+}
+
+function parseToken(v: string): string | null {
+  return TOKEN_RE.test(v) ? v : null;
+}
+
+function handleRegistrationError(err: unknown, reply: FastifyReply) {
+  if (!(err instanceof AppError)) throw err;
+  const map: Record<string, number> = {
+    LINK_NOT_FOUND: 404,
+    REGISTRATION_CLOSED: 409,
+    INVALID_REGISTRATION: 422,
+    ALREADY_PLAYER: 409,
+    ALREADY_REGISTERED: 409,
+    GUEST_NAME_REQUIRED: 400,
+  };
+  return reply.code(map[err.code] ?? 500).send({ error: err.code, message: err.message });
 }
 
 function parseRoundNumber(v: string): number | null {
@@ -17,6 +39,16 @@ function parseRoundNumber(v: string): number | null {
 const PUBLIC_RATE_LIMIT = {
   max: Number(process.env.PUBLIC_RATE_LIMIT_MAX ?? 100),
   timeWindow: Number(process.env.PUBLIC_RATE_LIMIT_WINDOW_MS ?? 60_000),
+};
+
+// Registration submission is a DB write with no auth and no per-guest
+// uniqueness constraint — reusing PUBLIC_RATE_LIMIT (built for read-only
+// endpoints) would let a single IP flood a tournament's approval queue with
+// up to 100 garbage entries/min. Match the stricter tier already used for
+// /login and /register instead (auth.routes.ts).
+const REGISTRATION_SUBMIT_RATE_LIMIT = {
+  max: Number(process.env.AUTH_RATE_LIMIT_MAX ?? 10),
+  timeWindow: Number(process.env.AUTH_RATE_LIMIT_WINDOW_MS ?? 60_000),
 };
 
 // Short public cache: real-time feel without hammering DB on every auto-refresh tick
@@ -218,6 +250,47 @@ const publicRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
   );
+
+  // Registration form info — no auth. Returns tournament basics regardless of
+  // status so the client can render a "registration closed" state.
+  fastify.get<{ Params: { token: string } }>('/register/:token', {
+    config: { rateLimit: PUBLIC_RATE_LIMIT },
+    handler: async (request, reply) => {
+      const token = parseToken(request.params.token);
+      if (!token) return reply.code(400).send({ error: 'INVALID_TOKEN' });
+
+      try {
+        return reply.send(await getPublicTournamentInfo(token));
+      } catch (err) {
+        return handleRegistrationError(err, reply);
+      }
+    },
+  });
+
+  // Self-registration submission. optionalAuthenticate populates request.user
+  // when a valid session cookie is present but never rejects the request —
+  // logged-in callers register as themselves, anonymous callers as a guest.
+  fastify.post<{ Params: { token: string }; Body: unknown }>('/register/:token', {
+    config: { rateLimit: REGISTRATION_SUBMIT_RATE_LIMIT },
+    preHandler: [optionalAuthenticate, fastify.csrfProtection],
+    handler: async (request, reply) => {
+      const token = parseToken(request.params.token);
+      if (!token) return reply.code(400).send({ error: 'INVALID_TOKEN' });
+
+      const parsed = SubmitRegistrationSchema.safeParse(request.body);
+      if (!parsed.success) {
+        return reply.code(400).send({ error: 'VALIDATION_ERROR', details: parsed.error.flatten() });
+      }
+
+      const actor = request.user ? { userId: request.user.id } : null;
+      try {
+        const registration = await submitRegistration(token, actor, parsed.data);
+        return reply.code(201).send(registration);
+      } catch (err) {
+        return handleRegistrationError(err, reply);
+      }
+    },
+  });
 };
 
 export default publicRoutes;
