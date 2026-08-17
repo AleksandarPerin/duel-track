@@ -3,6 +3,8 @@ import { authenticate } from '../middleware/authenticate';
 import { AppError } from '../errors/AppError';
 import { writeAuditLog } from '../audit/audit.service';
 import { startTournament, getRoundPairings, advanceRound, forceAdvanceRound } from './pairing.service';
+import type { AdvanceRoundResult } from './pairing.service';
+import { publishTournamentEvent } from '../ws/broadcaster';
 
 const PAIRING_RATE_LIMIT = {
   max: Number(process.env.PAIRING_RATE_LIMIT_MAX ?? 30),
@@ -44,6 +46,42 @@ async function safeAudit(
   }
 }
 
+async function safePublish(
+  log: import('fastify').FastifyBaseLogger,
+  tournamentId: string,
+  event: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await publishTournamentEvent(tournamentId, event);
+  } catch (err) {
+    log.error({ err }, 'Failed to publish tournament event — mutation was committed');
+  }
+}
+
+// Shared by /start, /advance, /force-advance: tells spectators either that a
+// new round is live (so they can refresh pairings and restart their local
+// timer from started_at/timer_minutes) or that the tournament has finished.
+async function publishRoundResult(
+  log: import('fastify').FastifyBaseLogger,
+  tournamentId: string,
+  result: AdvanceRoundResult,
+): Promise<void> {
+  if (result.completed) {
+    await safePublish(log, tournamentId, {
+      type: 'tournament.completed',
+      round_number: result.roundNumber,
+    });
+    return;
+  }
+  await safePublish(log, tournamentId, {
+    type: 'round.started',
+    round_number: result.round.round_number,
+    phase: result.round.phase,
+    timer_minutes: result.round.timer_minutes,
+    started_at: result.round.started_at,
+  });
+}
+
 const pairingRoutes: FastifyPluginAsync = async (fastify) => {
   // Start tournament and generate round 1 pairings
   fastify.post<{ Params: { id: string } }>('/:id/start', {
@@ -70,6 +108,7 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
             warning: result.warning ?? null,
           },
         });
+        await publishRoundResult(request.log, id, { completed: false, ...result });
 
         return reply.code(201).send(result);
       } catch (err) {
@@ -99,6 +138,7 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
             entityId: id,
             detail: { final_round: result.roundNumber, tournament_completed: true },
           });
+          await publishRoundResult(request.log, id, result);
           return reply.send({ completed: true, round_number: result.roundNumber });
         }
 
@@ -115,6 +155,7 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
             warning: result.warning ?? null,
           },
         });
+        await publishRoundResult(request.log, id, result);
 
         return reply.code(201).send(result);
       } catch (err) {
@@ -164,6 +205,7 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
           entityId: result.completed ? id : result.round.id,
           detail,
         });
+        await publishRoundResult(request.log, id, result);
 
         return reply.code(result.completed ? 200 : 201).send(result);
       } catch (err) {

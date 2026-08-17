@@ -4,6 +4,7 @@ import { AppError } from '../errors/AppError';
 import { writeAuditLog } from '../audit/audit.service';
 import { pool } from '../db/pool';
 import { getRoundStandings, publishRoundStandings } from './standings.service';
+import { publishTournamentEvent } from '../ws/broadcaster';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -29,6 +30,18 @@ async function safeAudit(
     await writeAuditLog(params);
   } catch (err) {
     log.error({ err }, 'Failed to write audit log — mutation was committed');
+  }
+}
+
+async function safePublish(
+  log: import('fastify').FastifyBaseLogger,
+  tournamentId: string,
+  event: Record<string, unknown>,
+): Promise<void> {
+  try {
+    await publishTournamentEvent(tournamentId, event);
+  } catch (err) {
+    log.error({ err }, 'Failed to publish tournament event — mutation was committed');
   }
 }
 
@@ -110,6 +123,7 @@ const standingsRoutes: FastifyPluginAsync = async (fastify) => {
             entityId: id,
             detail: { round_number: rn },
           });
+          await safePublish(request.log, id, { type: 'standings.published', round_number: rn });
 
           return reply.code(200).send({ published: true });
         } catch (err) {
