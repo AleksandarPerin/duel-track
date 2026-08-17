@@ -1,5 +1,7 @@
 import type { FastifyPluginAsync } from 'fastify';
 import jwt from 'jsonwebtoken';
+import { randomBytes } from 'node:crypto';
+import { OAuth2Client } from 'google-auth-library';
 import { RegisterSchema, LoginSchema } from './auth.schemas';
 import {
   registerUser,
@@ -7,6 +9,7 @@ import {
   getUserById,
   incrementTokenVersion,
 } from './auth.service';
+import { verifyGoogleIdToken, findOrCreateOAuthUser } from './oauth.service';
 import { AppError } from '../errors/AppError';
 import {
   JWT_ISSUER,
@@ -220,6 +223,111 @@ const authRoutes: FastifyPluginAsync = async (fastify) => {
       return reply.code(200).send({ ok: true });
     },
   });
+
+  // ── Google OAuth2 login ──────────────────────────────────────────────────
+  // Optional feature: only registered if all three env vars are set, so
+  // deployments/tests that don't configure Google OAuth are unaffected.
+  const googleClientId = process.env.GOOGLE_CLIENT_ID;
+  const googleClientSecret = process.env.GOOGLE_CLIENT_SECRET;
+  const googleRedirectUri = process.env.GOOGLE_REDIRECT_URI;
+
+  if (googleClientId && googleClientSecret && googleRedirectUri) {
+    const oauthClient = new OAuth2Client(googleClientId, googleClientSecret, googleRedirectUri);
+    const OAUTH_CALLBACK_PATH = '/api/auth/oauth/google/callback';
+    const OAUTH_STATE_COOKIE = 'oauth_state';
+    const OAUTH_STATE_TTL_S = 600; // 10 minutes — enough for a user to complete the Google consent screen
+    const FRONTEND_URL = (process.env.CORS_ORIGIN?.split(',')[0] ?? 'http://localhost:5173').replace(/\/+$/, '');
+
+    // GET /api/auth/oauth/google — redirect the browser to Google's consent screen
+    fastify.get('/oauth/google', {
+      config: { rateLimit: AUTH_RATE_LIMIT },
+      handler: async (_request, reply) => {
+        const state = randomBytes(32).toString('hex');
+        const authUrl = oauthClient.generateAuthUrl({
+          scope: ['openid', 'email', 'profile'],
+          state,
+          prompt: 'select_account',
+        });
+
+        // SameSite=Lax (not Strict) is required here: the browser returns from
+        // accounts.google.com via a top-level cross-site GET navigation, and a
+        // Strict cookie would not be sent on that request, breaking the flow.
+        reply.setCookie(OAUTH_STATE_COOKIE, state, {
+          httpOnly: true,
+          secure: SECURE_COOKIE,
+          sameSite: 'lax',
+          maxAge: OAUTH_STATE_TTL_S,
+          path: OAUTH_CALLBACK_PATH,
+        });
+
+        return reply.redirect(authUrl);
+      },
+    });
+
+    // GET /api/auth/oauth/google/callback — exchange the code, verify the ID
+    // token, find-or-create the local user, and issue our own session cookies.
+    fastify.get<{ Querystring: { code?: string; state?: string; error?: string } }>(
+      '/oauth/google/callback',
+      {
+        config: { rateLimit: AUTH_RATE_LIMIT },
+        handler: async (request, reply) => {
+          const { code, state, error } = request.query;
+          const cookieState = request.cookies?.[OAUTH_STATE_COOKIE];
+          reply.clearCookie(OAUTH_STATE_COOKIE, { path: OAUTH_CALLBACK_PATH });
+
+          if (error || !code || !state || !cookieState || state !== cookieState) {
+            return reply.code(401).send({ error: 'OAUTH_STATE_MISMATCH' });
+          }
+
+          try {
+            const { tokens } = await oauthClient.getToken(code);
+            if (!tokens.id_token) {
+              return reply.code(401).send({ error: 'OAUTH_NO_ID_TOKEN' });
+            }
+
+            const profile = await verifyGoogleIdToken(oauthClient, tokens.id_token, googleClientId);
+            const user = await findOrCreateOAuthUser(profile.email, profile.displayName);
+
+            const { accessToken, refreshToken } = signTokens(
+              user.id,
+              user.role,
+              user.token_version,
+            );
+
+            reply
+              .setCookie('access_token', accessToken, {
+                ...BASE_COOKIE,
+                maxAge: ACCESS_EXPIRY_S,
+                path: '/',
+              })
+              .setCookie('refresh_token', refreshToken, {
+                ...BASE_COOKIE,
+                maxAge: REFRESH_EXPIRY_S,
+                path: '/api/auth',
+              });
+
+            return reply.redirect(`${FRONTEND_URL}/`);
+          } catch (err) {
+            // Only these two are genuine "the login attempt was rejected" outcomes.
+            // Anything else (DB outage, Google API 5xx, an unexpected bug) is an
+            // infrastructure failure, not an auth failure — rethrow so the global
+            // error handler in app.ts logs it and returns a 500, same as /login.
+            if (err instanceof AppError && err.code === 'OAUTH_EMAIL_UNVERIFIED') {
+              return reply.code(401).send({ error: 'OAUTH_EMAIL_UNVERIFIED' });
+            }
+            if (err instanceof AppError && err.code === 'OAUTH_ACCOUNT_EXISTS') {
+              return reply.code(409).send({ error: 'OAUTH_ACCOUNT_EXISTS' });
+            }
+            throw err;
+          }
+        },
+      },
+    );
+  } else {
+    fastify.log.warn(
+      'GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET / GOOGLE_REDIRECT_URI not fully set — Google OAuth routes disabled',
+    );
+  }
 };
 
 export default authRoutes;
