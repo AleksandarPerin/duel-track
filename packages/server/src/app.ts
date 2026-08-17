@@ -3,6 +3,7 @@ import cookie from '@fastify/cookie';
 import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 import csrfProtection from '@fastify/csrf-protection';
+import websocket from '@fastify/websocket';
 import { pool, setPoolLogger } from './db/pool';
 import { redis } from './db/redis';
 import authRoutes from './auth/auth.routes';
@@ -13,6 +14,7 @@ import standingsRoutes from './standings/standings.routes';
 import judgeRoutes from './judges/judge.routes';
 import registrationRoutes from './registrations/registration.routes';
 import publicRoutes from './public/public.routes';
+import wsRoutes from './ws/ws.routes';
 
 async function checkWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
   const timeout = new Promise<false>((resolve) => setTimeout(() => resolve(false), ms));
@@ -50,6 +52,8 @@ export async function buildApp() {
   await app.register(rateLimit, { global: false, redis });
 
   await app.register(csrfProtection, { sessionPlugin: '@fastify/cookie' });
+
+  await app.register(websocket);
 
   // Global error handler: log internals server-side; return a generic 500 to
   // callers for anything unexpected. Trusted Fastify plugin errors (CSRF
@@ -97,6 +101,7 @@ export async function buildApp() {
   await app.register(judgeRoutes, { prefix: '/api/tournaments' });
   await app.register(registrationRoutes, { prefix: '/api/tournaments' });
   await app.register(publicRoutes, { prefix: '/api/public' });
+  await app.register(wsRoutes, { prefix: '/api/public' });
 
   return app;
 }
