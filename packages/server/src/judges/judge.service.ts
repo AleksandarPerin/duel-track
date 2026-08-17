@@ -25,6 +25,17 @@ export async function assignJudge(
     throw new AppError('INVALID_JUDGE', 'The organizer cannot be assigned as a judge');
   }
 
+  // A judge who is also competing has an obvious conflict of interest —
+  // enterResult() lets judges self-report match outcomes, so a judge who is
+  // one of the two players in their own pairing could report their own win.
+  const { rows: playerRows } = await pool.query(
+    'SELECT id FROM tournament_players WHERE tournament_id = $1 AND user_id = $2',
+    [tournamentId, targetUserId],
+  );
+  if (playerRows[0]) {
+    throw new AppError('INVALID_JUDGE', 'A player registered in this tournament cannot be assigned as a judge');
+  }
+
   const { rows: userRows } = await pool.query<{ display_name: string; email: string }>(
     'SELECT display_name, email FROM users WHERE id = $1',
     [targetUserId],

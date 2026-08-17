@@ -14,9 +14,15 @@ const MAX_DISPLAY_NAME_LEN = 100;
 
 // Mirrors RegisterSchema's display_name transform (auth.schemas.ts) so every
 // stored display_name shares the same normalization/length invariant,
-// regardless of which login path created the account.
+// regardless of which login path created the account. Unlike registration,
+// a Google login can't be rejected for an overlong name — there's no form
+// for the user to fix — so this truncates rather than validates. Truncating
+// via Array.from (codepoint-aware) rather than String.slice (UTF-16 code
+// units) avoids splitting a surrogate pair or separating a base character
+// from a trailing combining mark at the cut point.
 function normalizeDisplayName(raw: string): string {
-  return raw.trim().normalize('NFC').slice(0, MAX_DISPLAY_NAME_LEN);
+  const normalized = raw.trim().normalize('NFC');
+  return Array.from(normalized).slice(0, MAX_DISPLAY_NAME_LEN).join('');
 }
 
 // Verifies the ID token's signature against Google's published JWKS (handled
