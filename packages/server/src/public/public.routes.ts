@@ -5,6 +5,7 @@ import { AppError } from '../errors/AppError';
 import { writeAuditLog } from '../audit/audit.service';
 import { SubmitRegistrationSchema } from '../registrations/registration.schemas';
 import { getPublicTournamentInfo, submitRegistration } from '../registrations/registration.service';
+import { buildPairingsPdf, type PairingRow } from './pairings-pdf';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const ROUND_RE = /^\d+$/;
@@ -145,6 +146,25 @@ function buildCsv(standings: StandingRow[]): string {
   return BOM + [header, ...lines].join('\r\n');
 }
 
+async function fetchPairings(roundId: string): Promise<PairingRow[]> {
+  const { rows } = await pool.query<PairingRow>(
+    `SELECT p.id, p.table_number, p.is_bye,
+            p.player1_id,
+            COALESCE(u1.display_name, tp1.guest_name) AS player1_name,
+            p.player2_id,
+            COALESCE(u2.display_name, tp2.guest_name) AS player2_name
+     FROM pairings p
+     JOIN tournament_players tp1 ON tp1.id = p.player1_id
+     LEFT JOIN users u1 ON u1.id = tp1.user_id
+     LEFT JOIN tournament_players tp2 ON tp2.id = p.player2_id
+     LEFT JOIN users u2 ON u2.id = tp2.user_id
+     WHERE p.round_id = $1
+     ORDER BY p.table_number`,
+    [roundId],
+  );
+  return rows;
+}
+
 type Params = { id: string; roundNumber: string };
 
 const publicRoutes: FastifyPluginAsync = async (fastify) => {
@@ -223,31 +243,38 @@ const publicRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.code(404).send({ error: 'NOT_FOUND', message: 'Round not found' });
         }
 
-        const { rows } = await pool.query<{
-          id: string;
-          table_number: number;
-          is_bye: boolean;
-          player1_id: string;
-          player1_name: string;
-          player2_id: string | null;
-          player2_name: string | null;
-        }>(
-          `SELECT p.id, p.table_number, p.is_bye,
-                  p.player1_id,
-                  COALESCE(u1.display_name, tp1.guest_name) AS player1_name,
-                  p.player2_id,
-                  COALESCE(u2.display_name, tp2.guest_name) AS player2_name
-           FROM pairings p
-           JOIN tournament_players tp1 ON tp1.id = p.player1_id
-           LEFT JOIN users u1 ON u1.id = tp1.user_id
-           LEFT JOIN tournament_players tp2 ON tp2.id = p.player2_id
-           LEFT JOIN users u2 ON u2.id = tp2.user_id
-           WHERE p.round_id = $1
-           ORDER BY p.table_number`,
-          [round.id],
-        );
+        const rows = await fetchPairings(round.id);
 
         return reply.header('Cache-Control', PUBLIC_CACHE).send({ round, pairings: rows });
+      },
+    },
+  );
+
+  // Public pairings (PDF download) — no auth; only visible once a round is active or completed
+  fastify.get<{ Params: Params }>(
+    '/tournaments/:id/rounds/:roundNumber/pairings/pdf',
+    {
+      config: { rateLimit: PUBLIC_RATE_LIMIT },
+      handler: async (request, reply) => {
+        const id = parseUUID(request.params.id);
+        const rn = parseRoundNumber(request.params.roundNumber);
+        if (!id || rn === null) {
+          return reply.code(400).send({ error: 'INVALID_PARAMS' });
+        }
+
+        const round = await fetchRound(id, rn, true); // requireActive: pending rounds are not public
+        if (!round) {
+          return reply.code(404).send({ error: 'NOT_FOUND', message: 'Round not found' });
+        }
+
+        const rows = await fetchPairings(round.id);
+        const pdf = await buildPairingsPdf(round, rows);
+
+        return reply
+          .header('Content-Type', 'application/pdf')
+          .header('Content-Disposition', `attachment; filename="pairings-round-${rn}.pdf"`)
+          .header('Cache-Control', PUBLIC_CACHE)
+          .send(pdf);
       },
     },
   );
