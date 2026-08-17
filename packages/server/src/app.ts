@@ -10,6 +10,7 @@ import tournamentRoutes from './tournaments/tournament.routes';
 import pairingRoutes from './pairing/pairing.routes';
 import resultRoutes from './results/result.routes';
 import standingsRoutes from './standings/standings.routes';
+import judgeRoutes from './judges/judge.routes';
 import publicRoutes from './public/public.routes';
 
 async function checkWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
@@ -78,6 +79,7 @@ export async function buildApp() {
   await app.register(pairingRoutes, { prefix: '/api/tournaments' });
   await app.register(resultRoutes, { prefix: '/api/tournaments' });
   await app.register(standingsRoutes, { prefix: '/api/tournaments' });
+  await app.register(judgeRoutes, { prefix: '/api/tournaments' });
   await app.register(publicRoutes, { prefix: '/api/public' });
 
   return app;

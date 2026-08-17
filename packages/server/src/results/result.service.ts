@@ -22,19 +22,24 @@ export async function enterResult(
       tournament_id: string;
       tournament_status: string;
       organizer_id: string;
+      is_judge: boolean;
     }>(
       `SELECT p.id, p.is_bye,
               r.status AS round_status,
               r.phase  AS round_phase,
               t.id     AS tournament_id,
               t.status AS tournament_status,
-              t.organizer_id
+              t.organizer_id,
+              EXISTS (
+                SELECT 1 FROM tournament_judges tj
+                WHERE tj.tournament_id = t.id AND tj.user_id = $3
+              ) AS is_judge
        FROM pairings p
        JOIN rounds r ON r.id = p.round_id
        JOIN tournaments t ON t.id = r.tournament_id
        WHERE p.id = $1 AND t.id = $2 AND r.status = 'active'
        FOR UPDATE OF p, r`,
-      [pairingId, tournamentId],
+      [pairingId, tournamentId, actorId],
     );
     const pairing = pRows[0];
     if (!pairing) {
@@ -44,9 +49,10 @@ export async function enterResult(
     if (pairing.tournament_status !== 'in_progress' && pairing.tournament_status !== 'top_cut') {
       throw new AppError('TOURNAMENT_NOT_IN_PROGRESS', 'Tournament is not in progress');
     }
-    // C2: only the organizer may enter results (judge role deferred to Phase 2)
-    if (pairing.organizer_id !== actorId) {
-      throw new AppError('FORBIDDEN', 'Only the tournament organizer can enter results');
+    // The organizer or a judge assigned to this tournament may enter results.
+    // Advancing rounds, dropping players, and bracket actions remain organizer-only.
+    if (pairing.organizer_id !== actorId && !pairing.is_judge) {
+      throw new AppError('FORBIDDEN', 'Only the tournament organizer or an assigned judge can enter results');
     }
     if (pairing.is_bye) {
       throw new AppError('BYE_RESULT', 'Cannot enter a result for a bye pairing');
