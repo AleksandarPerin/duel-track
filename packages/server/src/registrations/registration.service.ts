@@ -55,6 +55,17 @@ export async function submitRegistration(
       throw new AppError('INVALID_REGISTRATION', 'The organizer cannot self-register');
     }
 
+    // Mirror the same conflict-of-interest guard assignJudge() enforces in
+    // the other direction: a judge who is also playing could self-report
+    // their own match outcomes via enterResult().
+    const { rows: existingJudge } = await pool.query(
+      'SELECT 1 FROM tournament_judges WHERE tournament_id = $1 AND user_id = $2',
+      [tournament.id, actor.userId],
+    );
+    if (existingJudge[0]) {
+      throw new AppError('INVALID_REGISTRATION', 'A judge for this tournament cannot self-register as a player');
+    }
+
     const { rows: existingPlayer } = await pool.query(
       'SELECT id FROM tournament_players WHERE tournament_id = $1 AND user_id = $2',
       [tournament.id, actor.userId],

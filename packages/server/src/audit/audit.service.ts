@@ -15,6 +15,8 @@ export type AuditAction =
   | 'player.dropped'
   | 'judge.assigned'
   | 'judge.removed'
+  | 'tournament.registration_opened'
+  | 'registration.submitted'
   | 'registration.approved'
   | 'registration.rejected';
 

@@ -14,8 +14,8 @@ function parseUUID(v: string): string | null {
 }
 
 const REGISTRATION_RATE_LIMIT = {
-  max: Number(process.env.TOURNAMENT_RATE_LIMIT_MAX ?? 60),
-  timeWindow: Number(process.env.TOURNAMENT_RATE_LIMIT_WINDOW_MS ?? 60_000),
+  max: Number(process.env.REGISTRATION_RATE_LIMIT_MAX ?? 60),
+  timeWindow: Number(process.env.REGISTRATION_RATE_LIMIT_WINDOW_MS ?? 60_000),
 };
 
 function handleError(err: unknown, reply: FastifyReply) {

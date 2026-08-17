@@ -161,7 +161,7 @@ const tournamentRoutes: FastifyPluginAsync = async (fastify) => {
         await safeAuditLog(request.log, {
           tournamentId: id,
           actorId: user.id,
-          action: 'tournament.updated',
+          action: 'tournament.registration_opened',
           entityType: 'tournament',
           entityId: id,
           detail: { status: tournament.status },

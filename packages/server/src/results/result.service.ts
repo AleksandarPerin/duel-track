@@ -23,6 +23,8 @@ export async function enterResult(
       tournament_status: string;
       organizer_id: string;
       is_judge: boolean;
+      player1_user_id: string | null;
+      player2_user_id: string | null;
     }>(
       `SELECT p.id, p.is_bye,
               r.status AS round_status,
@@ -33,10 +35,14 @@ export async function enterResult(
               EXISTS (
                 SELECT 1 FROM tournament_judges tj
                 WHERE tj.tournament_id = t.id AND tj.user_id = $3
-              ) AS is_judge
+              ) AS is_judge,
+              tp1.user_id AS player1_user_id,
+              tp2.user_id AS player2_user_id
        FROM pairings p
        JOIN rounds r ON r.id = p.round_id
        JOIN tournaments t ON t.id = r.tournament_id
+       JOIN tournament_players tp1 ON tp1.id = p.player1_id
+       LEFT JOIN tournament_players tp2 ON tp2.id = p.player2_id
        WHERE p.id = $1 AND t.id = $2 AND r.status = 'active'
        FOR UPDATE OF p, r`,
       [pairingId, tournamentId, actorId],
@@ -53,6 +59,17 @@ export async function enterResult(
     // Advancing rounds, dropping players, and bracket actions remain organizer-only.
     if (pairing.organizer_id !== actorId && !pairing.is_judge) {
       throw new AppError('FORBIDDEN', 'Only the tournament organizer or an assigned judge can enter results');
+    }
+    // Defense-in-depth: assignJudge()/submitRegistration() already block a
+    // single user from being both a judge and a player in the same
+    // tournament, but if that invariant were ever violated a judge must
+    // still never be able to self-report the outcome of their own match.
+    if (
+      pairing.is_judge &&
+      pairing.organizer_id !== actorId &&
+      (actorId === pairing.player1_user_id || actorId === pairing.player2_user_id)
+    ) {
+      throw new AppError('FORBIDDEN', 'A judge cannot enter the result for their own match');
     }
     if (pairing.is_bye) {
       throw new AppError('BYE_RESULT', 'Cannot enter a result for a bye pairing');

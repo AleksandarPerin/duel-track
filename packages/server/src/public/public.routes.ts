@@ -2,6 +2,7 @@ import type { FastifyPluginAsync, FastifyReply } from 'fastify';
 import { pool } from '../db/pool';
 import { optionalAuthenticate } from '../middleware/authenticate';
 import { AppError } from '../errors/AppError';
+import { writeAuditLog } from '../audit/audit.service';
 import { SubmitRegistrationSchema } from '../registrations/registration.schemas';
 import { getPublicTournamentInfo, submitRegistration } from '../registrations/registration.service';
 
@@ -285,6 +286,25 @@ const publicRoutes: FastifyPluginAsync = async (fastify) => {
       const actor = request.user ? { userId: request.user.id } : null;
       try {
         const registration = await submitRegistration(token, actor, parsed.data);
+
+        // Only the authenticated-submitter path has a users.id to attribute
+        // the write to — audit_log.actor_id is NOT NULL, so a guest
+        // submission (no account) structurally can't get an entry here.
+        if (actor) {
+          try {
+            await writeAuditLog({
+              tournamentId: registration.tournament_id,
+              actorId: actor.userId,
+              action: 'registration.submitted',
+              entityType: 'tournament_registration',
+              entityId: registration.id,
+              detail: { user_id: registration.user_id },
+            });
+          } catch (err) {
+            request.log.error({ err }, 'Failed to write audit log — mutation was committed');
+          }
+        }
+
         return reply.code(201).send(registration);
       } catch (err) {
         return handleRegistrationError(err, reply);
