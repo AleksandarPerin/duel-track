@@ -17,3 +17,14 @@ export interface TournamentPlayer {
 export interface TournamentPlayerView extends TournamentPlayer {
   display_name: string; // user.display_name or guest_name
 }
+
+export interface ClaimablePlayerView {
+  player_id: string;
+  tournament_id: string;
+  tournament_name: string;
+  tournament_status: string;
+  scheduled_at: string | null;
+  guest_name: string | null;
+  player_status: PlayerStatus;
+  created_at: string;
+}
