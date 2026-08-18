@@ -18,7 +18,9 @@ export type AuditAction =
   | 'tournament.registration_opened'
   | 'registration.submitted'
   | 'registration.approved'
-  | 'registration.rejected';
+  | 'registration.rejected'
+  | 'player.claimed'
+  | 'player.linked_by_organizer';
 
 export async function writeAuditLog(params: {
   tournamentId: string;

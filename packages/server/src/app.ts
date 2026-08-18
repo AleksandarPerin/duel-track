@@ -13,6 +13,7 @@ import resultRoutes from './results/result.routes';
 import standingsRoutes from './standings/standings.routes';
 import judgeRoutes from './judges/judge.routes';
 import registrationRoutes from './registrations/registration.routes';
+import profileRoutes, { playerLinkRoutes } from './profile/profile.routes';
 import publicRoutes from './public/public.routes';
 import wsRoutes from './ws/ws.routes';
 
@@ -100,6 +101,8 @@ export async function buildApp() {
   await app.register(standingsRoutes, { prefix: '/api/tournaments' });
   await app.register(judgeRoutes, { prefix: '/api/tournaments' });
   await app.register(registrationRoutes, { prefix: '/api/tournaments' });
+  await app.register(profileRoutes, { prefix: '/api/profile' });
+  await app.register(playerLinkRoutes, { prefix: '/api/tournaments' });
   await app.register(publicRoutes, { prefix: '/api/public' });
   await app.register(wsRoutes, { prefix: '/api/public' });
 
