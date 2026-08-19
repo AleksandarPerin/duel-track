@@ -11,7 +11,7 @@ import {
 } from './tournament.schemas';
 import {
   createTournament,
-  getTournament,
+  assertTournamentViewer,
   openRegistration,
   updateTournament,
   listPlayers,
@@ -106,7 +106,7 @@ const tournamentRoutes: FastifyPluginAsync = async (fastify) => {
       if (!id) return reply.code(400).send({ error: 'INVALID_ID' });
 
       try {
-        return reply.send(await getTournament(id));
+        return reply.send(await assertTournamentViewer(id, request.user!.id));
       } catch (err) {
         return handleServiceError(err, reply);
       }
@@ -184,7 +184,7 @@ const tournamentRoutes: FastifyPluginAsync = async (fastify) => {
       if (!id) return reply.code(400).send({ error: 'INVALID_ID' });
 
       try {
-        await getTournament(id); // 404 guard
+        await assertTournamentViewer(id, request.user!.id);
         return reply.send(await listPlayers(id));
       } catch (err) {
         return handleServiceError(err, reply);
