@@ -3,7 +3,12 @@ import { authenticate } from '../middleware/authenticate';
 import { AppError } from '../errors/AppError';
 import { writeAuditLog } from '../audit/audit.service';
 import { ClaimPlayerSchema, LinkPlayerSchema } from './profile.schemas';
-import { listClaimablePlayers, claimGuestPlayer, linkPlayerToUser } from './profile.service';
+import {
+  listClaimablePlayers,
+  claimGuestPlayer,
+  linkPlayerToUser,
+  getHeadToHead,
+} from './profile.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -14,6 +19,11 @@ function parseUUID(v: string): string | null {
 const CLAIM_RATE_LIMIT = {
   max: Number(process.env.CLAIM_RATE_LIMIT_MAX ?? 30),
   timeWindow: Number(process.env.CLAIM_RATE_LIMIT_WINDOW_MS ?? 60_000),
+};
+
+const HEAD_TO_HEAD_RATE_LIMIT = {
+  max: Number(process.env.HEAD_TO_HEAD_RATE_LIMIT_MAX ?? 60),
+  timeWindow: Number(process.env.HEAD_TO_HEAD_RATE_LIMIT_WINDOW_MS ?? 60_000),
 };
 
 function handleError(err: unknown, reply: FastifyReply) {
@@ -54,6 +64,19 @@ const profileRoutes: FastifyPluginAsync = async (fastify) => {
       const user = request.user!;
       try {
         return reply.send(await listClaimablePlayers(user.id));
+      } catch (err) {
+        return handleError(err, reply);
+      }
+    },
+  });
+
+  fastify.get('/head-to-head', {
+    config: { rateLimit: HEAD_TO_HEAD_RATE_LIMIT },
+    preHandler: authenticate,
+    handler: async (request, reply) => {
+      const user = request.user!;
+      try {
+        return reply.send(await getHeadToHead(user.id));
       } catch (err) {
         return handleError(err, reply);
       }

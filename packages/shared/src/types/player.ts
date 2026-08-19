@@ -28,3 +28,12 @@ export interface ClaimablePlayerView {
   player_status: PlayerStatus;
   created_at: string;
 }
+
+export interface HeadToHeadOpponentView {
+  opponent_user_id: string | null;
+  opponent_display_name: string;
+  wins: number;
+  losses: number;
+  draws: number;
+  matches_played: number;
+}

@@ -1,7 +1,8 @@
 import { pool } from '../db/pool';
 import { AppError } from '../errors/AppError';
 import { toPlayerView, type GuestPlayerRow } from './profile.view';
-import type { ClaimablePlayerView, TournamentPlayerView } from '@dueltrack/shared';
+import { buildHeadToHead, type HeadToHeadMatchRow } from './profile.head-to-head.view';
+import type { ClaimablePlayerView, HeadToHeadOpponentView, TournamentPlayerView } from '@dueltrack/shared';
 
 const CLAIMED_PLAYER_COLUMNS = `
   id, tournament_id, user_id, sort_seed, byes_received,
@@ -68,6 +69,57 @@ export async function listClaimablePlayers(userId: string): Promise<ClaimablePla
     [userId, CLAIMABLE_LIMIT],
   );
   return rows;
+}
+
+const HEAD_TO_HEAD_QUERY = `
+  WITH my_pairings AS (
+    SELECT
+      p.id            AS pairing_id,
+      r.outcome       AS outcome,
+      'player1'::text AS my_side,
+      tp2.id          AS opponent_tp_id,
+      tp2.user_id     AS opponent_user_id,
+      tp2.guest_name  AS opponent_guest_name,
+      ou.display_name AS opponent_account_name
+    FROM tournament_players mytp
+    JOIN pairings p ON p.player1_id = mytp.id
+    JOIN results r ON r.pairing_id = p.id
+    JOIN tournament_players tp2 ON tp2.id = p.player2_id
+    LEFT JOIN users ou ON ou.id = tp2.user_id
+    WHERE mytp.user_id = $1
+
+    UNION ALL
+
+    SELECT
+      p.id            AS pairing_id,
+      r.outcome       AS outcome,
+      'player2'::text AS my_side,
+      tp1.id          AS opponent_tp_id,
+      tp1.user_id     AS opponent_user_id,
+      tp1.guest_name  AS opponent_guest_name,
+      ou.display_name AS opponent_account_name
+    FROM tournament_players mytp
+    JOIN pairings p ON p.player2_id = mytp.id
+    JOIN results r ON r.pairing_id = p.id
+    JOIN tournament_players tp1 ON tp1.id = p.player1_id
+    LEFT JOIN users ou ON ou.id = tp1.user_id
+    WHERE mytp.user_id = $1
+  )
+  SELECT pairing_id, outcome, my_side, opponent_tp_id, opponent_user_id,
+         opponent_guest_name, opponent_account_name
+  FROM my_pairings
+`;
+
+// UNION ALL of two one-sided branches (rather than an OR across
+// player1_id/player2_id) so each branch can use a single-column index
+// (idx_pairings_player1 / idx_pairings_player2) — an OR across two columns
+// can't use either index as efficiently. Deliberately unfiltered by
+// tournament status, same posture as listClaimablePlayers: a match that has
+// a results row happened regardless of the tournament's current status, and
+// results.pairing_id is UNIQUE so the inner join can't duplicate rows.
+export async function getHeadToHead(userId: string): Promise<HeadToHeadOpponentView[]> {
+  const { rows } = await pool.query<HeadToHeadMatchRow>(HEAD_TO_HEAD_QUERY, [userId]);
+  return buildHeadToHead(rows);
 }
 
 export async function claimGuestPlayer(
