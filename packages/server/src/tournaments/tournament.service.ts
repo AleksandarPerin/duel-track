@@ -105,6 +105,16 @@ export async function createTournament(
   return row;
 }
 
+export async function listOrganizerTournaments(organizerId: string): Promise<Tournament[]> {
+  const { rows } = await pool.query<Tournament>(
+    `SELECT id, organizer_id, name, format, rel_level, venue, scheduled_at,
+            status, total_rounds, current_round, top_cut, created_at
+     FROM tournaments WHERE organizer_id = $1 ORDER BY created_at DESC`,
+    [organizerId],
+  );
+  return rows;
+}
+
 export async function getTournament(id: string): Promise<Tournament> {
   const { rows } = await pool.query<Tournament>(
     `SELECT id, organizer_id, name, format, rel_level, venue, scheduled_at,

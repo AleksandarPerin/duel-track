@@ -7,5 +7,9 @@ declare module 'fastify' {
       role: UserRole;
       tokenVersion: number;
     };
+    apiToken?: {
+      organizerId: string;
+      tokenId: string;
+    };
   }
 }

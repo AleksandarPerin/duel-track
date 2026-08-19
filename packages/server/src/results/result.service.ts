@@ -2,6 +2,32 @@ import { pool } from '../db/pool';
 import { AppError } from '../errors/AppError';
 import type { Result, ResultInput } from '@dueltrack/shared';
 
+export interface RoundResultRow {
+  pairing_id: string;
+  player1_game_wins: number;
+  player2_game_wins: number;
+  games_drawn: number;
+  outcome: string;
+  entered_by: string;
+  entered_at: string;
+}
+
+export async function listRoundResults(
+  tournamentId: string,
+  roundNumber: number,
+): Promise<RoundResultRow[]> {
+  const { rows } = await pool.query<RoundResultRow>(
+    `SELECT res.pairing_id, res.player1_game_wins, res.player2_game_wins,
+            res.games_drawn, res.outcome, res.entered_by, res.entered_at
+     FROM results res
+     JOIN pairings p ON p.id = res.pairing_id
+     JOIN rounds r ON r.id = p.round_id
+     WHERE r.tournament_id = $1 AND r.round_number = $2`,
+    [tournamentId, roundNumber],
+  );
+  return rows;
+}
+
 export async function enterResult(
   tournamentId: string,
   pairingId: string,

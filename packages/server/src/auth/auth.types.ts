@@ -24,8 +24,19 @@ export const RefreshTokenPayloadSchema = z.object({
   exp: z.number(),
 });
 
+export const ApiTokenPayloadSchema = z.object({
+  sub: z.string(),
+  jti: z.string(),
+  type: z.literal('api'),
+  iss: z.literal('dueltrack'),
+  aud: z.literal('dueltrack-api'),
+  iat: z.number(),
+  exp: z.number(),
+});
+
 export type AccessTokenPayload = z.infer<typeof AccessTokenPayloadSchema>;
 export type RefreshTokenPayload = z.infer<typeof RefreshTokenPayloadSchema>;
+export type ApiTokenPayload = z.infer<typeof ApiTokenPayloadSchema>;
 
 export const JWT_ISSUER = 'dueltrack' as const;
 export const JWT_AUDIENCE = 'dueltrack-api' as const;
