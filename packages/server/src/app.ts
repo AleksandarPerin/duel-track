@@ -18,6 +18,8 @@ import profileRoutes, { playerLinkRoutes } from './profile/profile.routes';
 import publicRoutes from './public/public.routes';
 import archiveRoutes from './archive/archive.routes';
 import wsRoutes from './ws/ws.routes';
+import apiTokensRoutes from './api-tokens/api-tokens.routes';
+import externalRoutes from './external/external.routes';
 
 async function checkWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
   const timeout = new Promise<false>((resolve) => setTimeout(() => resolve(false), ms));
@@ -109,6 +111,8 @@ export async function buildApp() {
   await app.register(publicRoutes, { prefix: '/api/public' });
   await app.register(archiveRoutes, { prefix: '/api/public' });
   await app.register(wsRoutes, { prefix: '/api/public' });
+  await app.register(apiTokensRoutes, { prefix: '/api/api-tokens' });
+  await app.register(externalRoutes, { prefix: '/api/external/v1' });
 
   return app;
 }
