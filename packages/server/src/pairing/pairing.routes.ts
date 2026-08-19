@@ -5,6 +5,7 @@ import { writeAuditLog } from '../audit/audit.service';
 import { startTournament, getRoundPairings, advanceRound, forceAdvanceRound } from './pairing.service';
 import type { AdvanceRoundResult } from './pairing.service';
 import { publishTournamentEvent } from '../ws/broadcaster';
+import { assertTournamentViewer } from '../tournaments/tournament.service';
 
 const PAIRING_RATE_LIMIT = {
   max: Number(process.env.PAIRING_RATE_LIMIT_MAX ?? 30),
@@ -228,6 +229,7 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         try {
+          await assertTournamentViewer(id, request.user!.id);
           const data = await getRoundPairings(id, rn);
           if (!data) return reply.code(404).send({ error: 'ROUND_NOT_FOUND' });
           return reply.send(data);

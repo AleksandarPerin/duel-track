@@ -127,6 +127,30 @@ export async function getTournament(id: string): Promise<Tournament> {
   return row;
 }
 
+// Read access for the authenticated-but-not-necessarily-organizer views
+// (tournament detail, player roster, round pairings): the organizer or a
+// judge assigned to this tournament may view it — everyone else gets
+// FORBIDDEN. Deliberately separate from getTournament(), which many other
+// service functions call internally and then apply their own (often
+// stricter, organizer-only) check; this helper is only for the GET routes
+// that were missing any ownership check at all.
+export async function assertTournamentViewer(
+  tournamentId: string,
+  actorId: string,
+): Promise<Tournament> {
+  const tournament = await getTournament(tournamentId);
+  if (tournament.organizer_id === actorId) return tournament;
+
+  const { rows } = await pool.query(
+    `SELECT 1 FROM tournament_judges WHERE tournament_id = $1 AND user_id = $2`,
+    [tournamentId, actorId],
+  );
+  if (rows.length === 0) {
+    throw new AppError('FORBIDDEN', 'Only the tournament organizer or an assigned judge can view this tournament');
+  }
+  return tournament;
+}
+
 // The 'registration' status exists in the schema for exactly this: opening
 // self-registration (Step 12) before the organizer starts the event. Only
 // reachable from 'draft' — once players are being added/paired, going back
