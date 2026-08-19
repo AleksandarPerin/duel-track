@@ -16,6 +16,7 @@ import registrationRoutes from './registrations/registration.routes';
 import analyticsRoutes from './analytics/analytics.routes';
 import profileRoutes, { playerLinkRoutes } from './profile/profile.routes';
 import publicRoutes from './public/public.routes';
+import archiveRoutes from './archive/archive.routes';
 import wsRoutes from './ws/ws.routes';
 
 async function checkWithTimeout(p: Promise<unknown>, ms: number): Promise<boolean> {
@@ -106,6 +107,7 @@ export async function buildApp() {
   await app.register(profileRoutes, { prefix: '/api/profile' });
   await app.register(playerLinkRoutes, { prefix: '/api/tournaments' });
   await app.register(publicRoutes, { prefix: '/api/public' });
+  await app.register(archiveRoutes, { prefix: '/api/public' });
   await app.register(wsRoutes, { prefix: '/api/public' });
 
   return app;

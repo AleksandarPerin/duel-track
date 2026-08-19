@@ -9,4 +9,5 @@ export * from './types/result';
 export * from './types/standing';
 export * from './types/audit';
 export * from './types/analytics';
+export * from './types/archive';
 export * from './constants/mtg';
