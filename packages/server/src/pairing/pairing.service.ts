@@ -433,9 +433,15 @@ export async function getRoundPairings(
   const round = rRows[0];
   if (!round) return null;
 
+  // has_result lets a client (in particular the offline PWA, which otherwise
+  // has no way to distinguish "not yet entered" from "entered before this
+  // page load") tell the two apart without a second round-trip.
   const { rows: pRows } = await pool.query<Pairing>(
-    `SELECT id, round_id, table_number, player1_id, player2_id, is_bye, override_note
-     FROM pairings WHERE round_id = $1 ORDER BY table_number`,
+    `SELECT p.id, p.round_id, p.table_number, p.player1_id, p.player2_id, p.is_bye, p.override_note,
+            (r.id IS NOT NULL) AS has_result
+     FROM pairings p
+     LEFT JOIN results r ON r.pairing_id = p.id
+     WHERE p.round_id = $1 ORDER BY p.table_number`,
     [round.id],
   );
   return { round, pairings: pRows };
