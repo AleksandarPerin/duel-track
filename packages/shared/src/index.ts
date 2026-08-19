@@ -8,4 +8,5 @@ export * from './types/pairing';
 export * from './types/result';
 export * from './types/standing';
 export * from './types/audit';
+export * from './types/analytics';
 export * from './constants/mtg';
