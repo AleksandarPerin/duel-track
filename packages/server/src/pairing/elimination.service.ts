@@ -168,6 +168,26 @@ export async function advanceEliminationRound(
   );
   for (const b of byeRows) winners.push(b.player1_id);
 
+  // Unlike generateEliminationRound1 (which seeds only status = 'active'
+  // players), a winner here is derived purely from a recorded match outcome
+  // or bye — nothing re-checks whether that player was dropped between
+  // playing their match and this round closing. Without this check a
+  // dropped player advances (and could even be crowned champion) silently.
+  // Not safe to auto-resolve (e.g. auto-advance the opponent instead): that
+  // would rewrite bracket history the organizer didn't ask for, so this
+  // forces explicit organizer intervention instead.
+  const { rows: winnerStatus } = await client.query<{ id: string; status: string }>(
+    `SELECT id, status FROM tournament_players WHERE id = ANY($1::uuid[])`,
+    [winners],
+  );
+  const inactiveWinners = winnerStatus.filter((r) => r.status !== 'active');
+  if (inactiveWinners.length > 0) {
+    throw new AppError(
+      'WINNER_NO_LONGER_ACTIVE',
+      `${inactiveWinners.length} advancing player(s) are no longer active (dropped) — resolve before continuing`,
+    );
+  }
+
   if (winners.length === 1) {
     await client.query(`UPDATE tournaments SET status = 'completed' WHERE id = $1`, [tournamentId]);
     return { completed: true, roundNumber: currentRoundNumber };

@@ -32,6 +32,7 @@ function handleError(err: unknown, reply: FastifyReply) {
     INVALID_ELIMINATION_RESULT: 422,
     UNSUPPORTED_IN_ELIMINATION: 409,
     ELIMINATION_BRACKET_CORRUPT: 500,
+    WINNER_NO_LONGER_ACTIVE: 409,
   };
   return reply.code(map[err.code] ?? 500).send({ error: err.code, message: err.message });
 }
