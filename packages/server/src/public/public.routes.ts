@@ -312,7 +312,7 @@ const publicRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.code(400).send({ error: 'INVALID_PARAMS' });
         }
 
-        const round = await fetchRound(id, rn);
+        const round = await fetchRound(id, rn, true); // requireActive: pending rounds are not public — consistent with pairings/PDF, see fetchRound's own comment
         if (!round) {
           return reply.code(404).send({ error: 'NOT_FOUND', message: 'Round not found' });
         }
@@ -339,7 +339,7 @@ const publicRoutes: FastifyPluginAsync = async (fastify) => {
           return reply.code(400).send({ error: 'INVALID_PARAMS' });
         }
 
-        const round = await fetchRound(id, rn);
+        const round = await fetchRound(id, rn, true); // requireActive: pending rounds are not public — consistent with pairings/PDF, see fetchRound's own comment
         if (!round) {
           return reply.code(404).send({ error: 'NOT_FOUND', message: 'Round not found' });
         }

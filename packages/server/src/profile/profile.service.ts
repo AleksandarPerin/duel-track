@@ -1,4 +1,5 @@
 import { pool } from '../db/pool';
+import { lockTournamentUserPair } from '../db/advisoryLock';
 import { AppError } from '../errors/AppError';
 import { toPlayerView, type GuestPlayerRow } from './profile.view';
 import { buildHeadToHead, type HeadToHeadMatchRow } from './profile.head-to-head.view';
@@ -178,6 +179,12 @@ export async function claimGuestPlayer(
       throw new AppError('INVALID_CLAIM', 'The organizer of a tournament cannot claim a player record in it');
     }
 
+    // Serializes against assignJudge's own check for a conflicting player
+    // row — without this, a concurrent judge assignment and this claim can
+    // each pass their own check before the other commits, leaving the same
+    // user as both a player and a judge. See lockTournamentUserPair.
+    await lockTournamentUserPair(client, player.tournament_id, userId);
+
     // Same conflict of interest assignJudge() and submitRegistration() already
     // guard in the other two directions: judges can enter results for any
     // match, so a judge holding a player row could self-report their own wins.
@@ -266,6 +273,10 @@ export async function linkPlayerToUser(
     if (targetUserId === organizerId) {
       throw new AppError('INVALID_LINK', 'The organizer cannot be linked to a player record in their own tournament');
     }
+
+    // Serializes against assignJudge's own check for a conflicting player
+    // row — see lockTournamentUserPair.
+    await lockTournamentUserPair(client, tournamentId, targetUserId);
 
     const { rows: judgeRows } = await client.query(
       'SELECT 1 FROM tournament_judges WHERE tournament_id = $1 AND user_id = $2',

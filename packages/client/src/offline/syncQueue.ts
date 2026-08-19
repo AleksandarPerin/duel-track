@@ -126,22 +126,40 @@ export function flushQueue(): Promise<void> {
 // that just came back from being flaky at a venue with many queued items.
 async function runFlush(): Promise<void> {
   const db = await openDb();
+
+  // A record can be found here at 'syncing' if the app was killed mid-flush
+  // last time (OS backgrounding a PWA, browser crash, force-close) — the
+  // in-memory flushInFlight guard only prevents overlap *within* a live tab,
+  // it can't protect a record whose tab is simply gone. Since nothing else
+  // ever queries 'syncing', such a record would otherwise never be retried
+  // and would show "Syncing…" in the UI forever with no way to recover it.
+  const stuckSyncing = await db.getAllFromIndex('queuedResults', 'by-status', 'syncing');
+  await Promise.all(stuckSyncing.map((r) => db.put('queuedResults', { ...r, status: 'pending' })));
+  if (stuckSyncing.length > 0) notifyQueueUpdated();
+
   const pending = await db.getAllFromIndex('queuedResults', 'by-status', 'pending');
   const ordered = selectPendingInOrder(pending);
 
+  // Notified after every per-item state change (not just once at the end) so
+  // a judge watching a large batch flush (e.g. after a long offline stretch)
+  // sees live progress instead of a frozen pre-flush view until everything
+  // finishes.
   for (const record of ordered) {
     await db.put('queuedResults', { ...record, status: 'syncing' });
+    notifyQueueUpdated();
 
     const attempt = await attemptSubmit(record);
     const outcome = classifySyncAttempt(attempt);
 
     if (outcome.kind === 'success') {
       await db.delete('queuedResults', record.id);
+      notifyQueueUpdated();
       continue;
     }
 
     if (outcome.kind === 'retry-later') {
       await db.put('queuedResults', { ...record, status: 'pending' });
+      notifyQueueUpdated();
       // A thrown fetch almost always means we just went offline again (or
       // never came back online) — every remaining item would fail the same
       // way, so stop this pass rather than burning through the whole queue.
@@ -153,9 +171,13 @@ async function runFlush(): Promise<void> {
 
     if (outcome.kind === 'auth-required') {
       await db.put('queuedResults', { ...record, status: 'auth-required' });
+      notifyQueueUpdated();
       // Every other queued item will also 401 (same expired session) — stop
       // and send the judge to sign in, without discarding anything queued.
-      window.location.assign('/login');
+      // Carries ?redirect= back to the current round, same as apiRequest's
+      // 401 handler — there's no in-app nav back to a round otherwise.
+      const redirect = encodeURIComponent(window.location.pathname);
+      window.location.assign(`/login?redirect=${redirect}`);
       break;
     }
 
@@ -163,7 +185,6 @@ async function runFlush(): Promise<void> {
     // about the rest of the queue, so keep going.
     const status = outcome.kind === 'conflict' ? 'conflict' : 'failed';
     await db.put('queuedResults', { ...record, status, failureReason: outcome.reason });
+    notifyQueueUpdated();
   }
-
-  if (ordered.length > 0) notifyQueueUpdated();
 }
