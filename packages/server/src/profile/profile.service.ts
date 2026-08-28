@@ -3,7 +3,12 @@ import { lockTournamentUserPair } from '../db/advisoryLock';
 import { AppError } from '../errors/AppError';
 import { toPlayerView, type GuestPlayerRow } from './profile.view';
 import { buildHeadToHead, type HeadToHeadMatchRow } from './profile.head-to-head.view';
-import type { ClaimablePlayerView, HeadToHeadOpponentView, TournamentPlayerView } from '@dueltrack/shared';
+import type {
+  ClaimablePlayerView,
+  HeadToHeadOpponentView,
+  TournamentAssignmentView,
+  TournamentPlayerView,
+} from '@dueltrack/shared';
 
 const CLAIMED_PLAYER_COLUMNS = `
   id, tournament_id, user_id, sort_seed, byes_received,
@@ -68,6 +73,41 @@ export async function listClaimablePlayers(userId: string): Promise<ClaimablePla
      ORDER BY t.scheduled_at DESC NULLS LAST, tp.created_at DESC
      LIMIT $2`,
     [userId, CLAIMABLE_LIMIT],
+  );
+  return rows;
+}
+
+// Powers the post-login landing page: every tournament the caller organizes
+// or judges, plus the round they'd most usefully land on (the active one if
+// there is one, else the latest one) so the client can link straight into
+// RoundPage without the caller needing to know a tournament id by heart.
+// A tournament still in draft/registration has no rounds yet, so
+// current_round_number comes back null — the client renders that as "not
+// started" with no link rather than a broken one.
+export async function listMyAssignments(userId: string): Promise<TournamentAssignmentView[]> {
+  const { rows } = await pool.query<TournamentAssignmentView>(
+    `SELECT
+       t.id            AS tournament_id,
+       t.name          AS tournament_name,
+       t.status        AS tournament_status,
+       (t.organizer_id = $1) AS is_organizer,
+       r.round_number  AS current_round_number,
+       r.status        AS current_round_status
+     FROM tournaments t
+     LEFT JOIN LATERAL (
+       SELECT round_number, status
+       FROM rounds
+       WHERE rounds.tournament_id = t.id
+       ORDER BY (status = 'active') DESC, round_number DESC
+       LIMIT 1
+     ) r ON TRUE
+     WHERE t.organizer_id = $1
+        OR EXISTS (
+          SELECT 1 FROM tournament_judges tj
+          WHERE tj.tournament_id = t.id AND tj.user_id = $1
+        )
+     ORDER BY t.created_at DESC`,
+    [userId],
   );
   return rows;
 }

@@ -8,6 +8,7 @@ import {
   claimGuestPlayer,
   linkPlayerToUser,
   getHeadToHead,
+  listMyAssignments,
 } from './profile.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -24,6 +25,11 @@ const CLAIM_RATE_LIMIT = {
 const HEAD_TO_HEAD_RATE_LIMIT = {
   max: Number(process.env.HEAD_TO_HEAD_RATE_LIMIT_MAX ?? 60),
   timeWindow: Number(process.env.HEAD_TO_HEAD_RATE_LIMIT_WINDOW_MS ?? 60_000),
+};
+
+const ASSIGNMENTS_RATE_LIMIT = {
+  max: Number(process.env.ASSIGNMENTS_RATE_LIMIT_MAX ?? 60),
+  timeWindow: Number(process.env.ASSIGNMENTS_RATE_LIMIT_WINDOW_MS ?? 60_000),
 };
 
 function handleError(err: unknown, reply: FastifyReply) {
@@ -67,6 +73,15 @@ const profileRoutes: FastifyPluginAsync = async (fastify) => {
       } catch (err) {
         return handleError(err, reply);
       }
+    },
+  });
+
+  fastify.get('/assignments', {
+    config: { rateLimit: ASSIGNMENTS_RATE_LIMIT },
+    preHandler: authenticate,
+    handler: async (request, reply) => {
+      const user = request.user!;
+      return reply.send(await listMyAssignments(user.id));
     },
   });
 
