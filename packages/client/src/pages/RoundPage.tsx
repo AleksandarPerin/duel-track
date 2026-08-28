@@ -77,27 +77,37 @@ function formatRelativeTime(fetchedAt: number): string {
 // row, so a judge picks the literal score they saw at the table instead of
 // an abstract outcome plus a separate "loser's games" count (the two-step
 // version read as confusing: a bare "0 games" / "1 game" dropdown never
-// stated the winner's own score, or which player it was counting).
-const SCORE_OPTIONS: { key: string; label: string; input: ResultInput }[] = [
-  { key: 'p1-2-0', label: 'Player 1 wins 2–0', input: { outcome: 'player1_win', player1_game_wins: 2, player2_game_wins: 0, games_drawn: 0 } },
-  { key: 'p1-2-1', label: 'Player 1 wins 2–1', input: { outcome: 'player1_win', player1_game_wins: 2, player2_game_wins: 1, games_drawn: 0 } },
-  { key: 'p2-2-0', label: 'Player 2 wins 2–0', input: { outcome: 'player2_win', player1_game_wins: 0, player2_game_wins: 2, games_drawn: 0 } },
-  { key: 'p2-2-1', label: 'Player 2 wins 2–1', input: { outcome: 'player2_win', player1_game_wins: 1, player2_game_wins: 2, games_drawn: 0 } },
-  { key: 'draw', label: 'Draw (1–1)', input: { outcome: 'draw', player1_game_wins: 1, player2_game_wins: 1, games_drawn: 1 } },
-  { key: 'intentional_draw', label: 'Intentional draw', input: { outcome: 'intentional_draw', player1_game_wins: 0, player2_game_wins: 0, games_drawn: 0 } },
-  { key: 'double_loss', label: 'Double loss', input: { outcome: 'double_loss', player1_game_wins: 0, player2_game_wins: 0, games_drawn: 0 } },
-];
+// stated the winner's own score, or which player it was counting). Labels
+// use the actual player names rather than "Player 1"/"Player 2" — a judge
+// glancing at a generic label after tapping through a form has no easy way
+// to tell which physical player "1" refers to.
+function buildScoreOptions(player1Name: string, player2Name: string): { key: string; label: string; input: ResultInput }[] {
+  return [
+    { key: 'p1-2-0', label: `${player1Name} wins 2–0`, input: { outcome: 'player1_win', player1_game_wins: 2, player2_game_wins: 0, games_drawn: 0 } },
+    { key: 'p1-2-1', label: `${player1Name} wins 2–1`, input: { outcome: 'player1_win', player1_game_wins: 2, player2_game_wins: 1, games_drawn: 0 } },
+    { key: 'p2-2-0', label: `${player2Name} wins 2–0`, input: { outcome: 'player2_win', player1_game_wins: 0, player2_game_wins: 2, games_drawn: 0 } },
+    { key: 'p2-2-1', label: `${player2Name} wins 2–1`, input: { outcome: 'player2_win', player1_game_wins: 1, player2_game_wins: 2, games_drawn: 0 } },
+    { key: 'draw', label: 'Draw (1–1)', input: { outcome: 'draw', player1_game_wins: 1, player2_game_wins: 1, games_drawn: 1 } },
+    { key: 'intentional_draw', label: 'Intentional draw', input: { outcome: 'intentional_draw', player1_game_wins: 0, player2_game_wins: 0, games_drawn: 0 } },
+    { key: 'double_loss', label: 'Double loss', input: { outcome: 'double_loss', player1_game_wins: 0, player2_game_wins: 0, games_drawn: 0 } },
+  ];
+}
 
 function ResultForm({
   tournamentId,
   pairing,
+  player1Name,
+  player2Name,
   onSubmitted,
 }: {
   tournamentId: string;
   pairing: Pairing;
+  player1Name: string;
+  player2Name: string;
   onSubmitted: () => void;
 }) {
-  const [scoreKey, setScoreKey] = useState(SCORE_OPTIONS[0].key);
+  const scoreOptions = useMemo(() => buildScoreOptions(player1Name, player2Name), [player1Name, player2Name]);
+  const [scoreKey, setScoreKey] = useState(scoreOptions[0].key);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'error'; message: string } | null>(null);
 
@@ -105,7 +115,7 @@ function ResultForm({
     e.preventDefault();
     setSubmitting(true);
     setFeedback(null);
-    const body = SCORE_OPTIONS.find((o) => o.key === scoreKey)!.input;
+    const body = scoreOptions.find((o) => o.key === scoreKey)!.input;
 
     // Offline entirely: skip the network attempt and queue immediately —
     // trying first would just cost a timeout for a result that's going in
@@ -159,7 +169,7 @@ function ResultForm({
         value={scoreKey}
         onChange={(e) => setScoreKey(e.target.value)}
       >
-        {SCORE_OPTIONS.map((o) => (
+        {scoreOptions.map((o) => (
           <option key={o.key} value={o.key}>
             {o.label}
           </option>
@@ -176,12 +186,16 @@ function ResultForm({
 function renderResultCell({
   tournamentId,
   pairing,
+  player1Name,
+  player2Name,
   entered,
   queuedStatus,
   onSubmitted,
 }: {
   tournamentId: string;
   pairing: Pairing;
+  player1Name: string;
+  player2Name: string;
   entered: boolean;
   queuedStatus: QueuedStatusEntry | undefined;
   onSubmitted: () => void;
@@ -207,13 +221,27 @@ function renderResultCell({
         return (
           <>
             <p role="alert">{queuedStatus.failureReason ?? 'Sync failed.'}</p>
-            <ResultForm tournamentId={tournamentId} pairing={pairing} onSubmitted={onSubmitted} />
+            <ResultForm
+              tournamentId={tournamentId}
+              pairing={pairing}
+              player1Name={player1Name}
+              player2Name={player2Name}
+              onSubmitted={onSubmitted}
+            />
           </>
         );
     }
   }
 
-  return <ResultForm tournamentId={tournamentId} pairing={pairing} onSubmitted={onSubmitted} />;
+  return (
+    <ResultForm
+      tournamentId={tournamentId}
+      pairing={pairing}
+      player1Name={player1Name}
+      player2Name={player2Name}
+      onSubmitted={onSubmitted}
+    />
+  );
 }
 
 export function RoundPage() {
@@ -393,6 +421,8 @@ export function RoundPage() {
                         : renderResultCell({
                             tournamentId,
                             pairing,
+                            player1Name: nameFor(pairing.player1_id),
+                            player2Name: nameFor(pairing.player2_id),
                             entered: enteredPairingIds.has(pairing.id),
                             queuedStatus: queuedStatus.get(pairing.id),
                             onSubmitted: () =>

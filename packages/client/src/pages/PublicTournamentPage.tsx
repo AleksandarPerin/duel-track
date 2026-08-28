@@ -5,13 +5,22 @@ import { getTournamentExport } from '../api/publicTournament';
 import { ApiError } from '../api/client';
 import { RoundTimer } from '../components/RoundTimer';
 
-const OUTCOME_LABELS: Record<string, string> = {
-  player1_win: 'Player 1 wins',
-  player2_win: 'Player 2 wins',
-  draw: 'Draw',
-  intentional_draw: 'Intentional draw',
-  double_loss: 'Double loss',
-};
+function outcomeLabel(outcome: string, player1Name: string, player2Name: string): string {
+  switch (outcome) {
+    case 'player1_win':
+      return `${player1Name} wins`;
+    case 'player2_win':
+      return `${player2Name} wins`;
+    case 'draw':
+      return 'Draw';
+    case 'intentional_draw':
+      return 'Intentional draw';
+    case 'double_loss':
+      return 'Double loss';
+    default:
+      return outcome;
+  }
+}
 
 // Raw stored fraction (e.g. "0.5500") — the server never scales this to a
 // percent before sending it (see TournamentExportStanding's own comment).
@@ -139,7 +148,9 @@ export function PublicTournamentPage() {
                           <td>
                             {p.is_bye
                               ? '—'
-                              : (p.result && OUTCOME_LABELS[p.result.outcome]) ?? 'Not yet reported'}
+                              : p.result
+                                ? outcomeLabel(p.result.outcome, p.player1_name, p.player2_name ?? '')
+                                : 'Not yet reported'}
                           </td>
                         </tr>
                       ))}
