@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router-dom';
 import type { TournamentRegistrationView } from '@dueltrack/shared';
 import { getTournament } from '../api/tournaments';
 import { decideRegistration, getRegistrationLink, listRegistrations } from '../api/registrations';
@@ -155,6 +155,11 @@ export function TournamentRegistrationsPage() {
       <AppHeader />
       <main className="page">
         <h1>Signups{tournamentName ? ` — ${tournamentName}` : ''}</h1>
+        {tournamentId && (
+          <p>
+            <Link to={`/t/${tournamentId}`}>View public tournament page →</Link>
+          </p>
+        )}
         {error && <p role="alert">{error}</p>}
 
         {link && (
