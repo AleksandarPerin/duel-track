@@ -17,6 +17,7 @@ import {
   QueuedStatusEntry,
 } from '../offline/syncQueue';
 import { AppHeader } from '../components/AppHeader';
+import { RoundTimer } from '../components/RoundTimer';
 
 interface CacheFallback<T> {
   data: T;
@@ -360,6 +361,11 @@ export function RoundPage() {
         <h1>
           Round {pairingsData.round.round_number} — {pairingsData.round.phase} ({pairingsData.round.status})
         </h1>
+        <RoundTimer
+          status={pairingsData.round.status}
+          startedAt={pairingsData.round.started_at}
+          timerMinutes={pairingsData.round.timer_minutes}
+        />
         {!isOnline && <p role="status">Offline — results will be queued and sent once you're back online.</p>}
         {cacheBanner && <p role="status">{cacheBanner}</p>}
 
