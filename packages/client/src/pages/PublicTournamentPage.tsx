@@ -3,6 +3,7 @@ import { useParams } from 'react-router-dom';
 import type { TournamentExport, TournamentExportRound } from '@dueltrack/shared';
 import { getTournamentExport } from '../api/publicTournament';
 import { ApiError } from '../api/client';
+import { RoundTimer } from '../components/RoundTimer';
 
 const OUTCOME_LABELS: Record<string, string> = {
   player1_win: 'Player 1 wins',
@@ -118,6 +119,7 @@ export function PublicTournamentPage() {
                 <h2>
                   Round {round.round_number} — {round.phase} ({round.status})
                 </h2>
+                <RoundTimer status={round.status} startedAt={round.started_at} timerMinutes={round.timer_minutes} />
                 <div className="table-scroll">
                   <table>
                     <thead>

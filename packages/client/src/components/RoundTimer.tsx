@@ -1,4 +1,3 @@
-import type { RoundStatus } from '@dueltrack/shared';
 import { useCountdown } from '../hooks/useCountdown';
 
 const LOW_TIME_THRESHOLD_SECONDS = 5 * 60; // matches the 5-minute warning threshold in PRD NOT-03
@@ -16,7 +15,11 @@ export function RoundTimer({
   startedAt,
   timerMinutes,
 }: {
-  status: RoundStatus;
+  // Plain string, not RoundStatus — used identically by the authenticated
+  // RoundPage (whose Round.status is the typed union) and the public
+  // export's TournamentExportRound.status (a plain string), and this
+  // component only ever compares against the literal 'active'.
+  status: string;
   startedAt: string | null | undefined;
   timerMinutes: number;
 }) {
