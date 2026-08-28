@@ -100,9 +100,22 @@ export function RegisterPage() {
         {info.status !== 'registration' ? (
           <p role="alert">Registration for this tournament is closed.</p>
         ) : submitted ? (
-          <p role="status">
-            Registration submitted — the organizer will review it and add you to the tournament.
-          </p>
+          <>
+            <p role="status">
+              Registration submitted — the organizer will review it and add you to the tournament.
+            </p>
+            {/* Submitting only succeeds while the tournament is still in
+                'registration' status, which is exactly the status
+                fetchTournamentExport (this page's data source) excludes —
+                so pairings/standings can't exist yet. Framed as "once it
+                starts" rather than an immediate "View tournament" action,
+                since clicking it right now would only ever show "hasn't
+                started yet," contradicting the success message above it. */}
+            <p className="auth-card__footnote">
+              Once the tournament starts, pairings and standings will be posted at{' '}
+              <Link to={`/t/${info.id}`}>this page</Link> — worth bookmarking.
+            </p>
+          </>
         ) : (
           <>
             {justSignedIn && (
