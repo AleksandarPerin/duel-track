@@ -5,11 +5,17 @@ import { ApiError } from '../api/client';
 import { useAuth } from '../hooks/useAuth';
 
 const ROUND_PATH_RE = /^\/t\/[^/]+\/r\/\d+$/;
+// Registration links carry a ?signedIn=1 query string back from LoginPage —
+// anchoring the path to exactly /register/<64-hex-token> before the '?' means
+// that suffix can't be abused for an open redirect (a query string can't
+// change the origin a relative path resolves against).
+const REGISTER_PATH_RE = /^\/register\/[0-9a-f]{64}(\?.*)?$/i;
 
-// Only follow ?redirect= back to a round page or the dashboard — never an
-// arbitrary path, so a crafted link can't use this as an open redirect.
+// Only follow ?redirect= back to a round page, a registration link, or the
+// dashboard — never an arbitrary path, so a crafted link can't use this as
+// an open redirect.
 function isSafeRedirect(path: string): boolean {
-  return path === '/dashboard' || ROUND_PATH_RE.test(path);
+  return path === '/dashboard' || ROUND_PATH_RE.test(path) || REGISTER_PATH_RE.test(path);
 }
 
 export function LoginPage() {

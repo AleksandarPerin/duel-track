@@ -38,6 +38,10 @@ function AssignmentRow({ assignment }: { assignment: TournamentAssignmentView })
           <Link className="button" to={`/t/${tournament_id}/r/${current_round_number}`}>
             Round {current_round_number} ({ROUND_STATUS_LABELS[current_round_status]}) →
           </Link>
+        ) : is_organizer && tournament_status === 'registration' ? (
+          <Link className="button" to={`/t/${tournament_id}/registrations`}>
+            Manage signups →
+          </Link>
         ) : (
           <span className="assignment-card__no-round">No rounds started yet</span>
         )}

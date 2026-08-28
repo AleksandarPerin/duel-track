@@ -5,6 +5,8 @@ import type { LoginResponse } from './api/auth';
 import { LoginPage } from './pages/LoginPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { RoundPage } from './pages/RoundPage';
+import { RegisterPage } from './pages/RegisterPage';
+import { TournamentRegistrationsPage } from './pages/TournamentRegistrationsPage';
 
 export function App() {
   const [user, setUser] = useState<LoginResponse | null>(null);
@@ -15,6 +17,9 @@ export function App() {
         <Route path="/login" element={<LoginPage />} />
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/t/:tournamentId/r/:roundNumber" element={<RoundPage />} />
+        <Route path="/t/:tournamentId/registrations" element={<TournamentRegistrationsPage />} />
+        {/* Public — no auth required, reached via the organizer's shareable link. */}
+        <Route path="/register/:token" element={<RegisterPage />} />
         {/* Not logged in: DashboardPage's fetch 401s and apiRequest bounces to
             /login itself. Logged in: lands on the dashboard, same as any
             other unrecognized path. */}

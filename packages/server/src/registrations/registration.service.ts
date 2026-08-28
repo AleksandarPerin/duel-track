@@ -1,23 +1,13 @@
 import { pool } from '../db/pool';
 import { AppError } from '../errors/AppError';
 import { EDITABLE_STATUSES } from '../tournaments/tournament.service';
-import type { TournamentRegistrationView, RegistrationStatus } from '@dueltrack/shared';
+import type { TournamentRegistrationView, RegistrationStatus, PublicTournamentInfo } from '@dueltrack/shared';
 
 const REGISTRATION_COLUMNS = `
   tr.id, tr.tournament_id, tr.user_id, tr.guest_name, tr.guest_email,
   tr.status, tr.decided_by, tr.decided_at, tr.created_at,
   COALESCE(u.display_name, tr.guest_name) AS display_name
 `;
-
-export interface PublicTournamentInfo {
-  id: string;
-  name: string;
-  format: string;
-  rel_level: string;
-  venue: string | null;
-  scheduled_at: string | null;
-  status: string;
-}
 
 async function getTournamentByToken(
   token: string,
