@@ -51,7 +51,11 @@ export async function apiRequest<T>(
   opts: { method?: string; body?: unknown } = {},
 ): Promise<T> {
   const method = opts.method ?? 'GET';
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {};
+  // Fastify's JSON body parser 400s on an empty body sent with this header
+  // (FST_ERR_CTP_EMPTY_JSON_BODY) — only set it when there's actually a body,
+  // e.g. a bodyless POST like /auth/logout.
+  if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
   if (method !== 'GET' && csrfToken) headers['x-csrf-token'] = csrfToken;
 
   const res = await fetch(`/api${path}`, {
@@ -67,8 +71,8 @@ export async function apiRequest<T>(
     // raw fetch() instead of apiRequest(), since redirecting mid-flush would
     // yank the user off the round page they're actively using offline.
     // Carries the current path as ?redirect= so LoginPage can send the judge
-    // back to the round page they were on instead of stranding them post-login
-    // (there is no landing page in this step's scope to fall back to).
+    // back to the round page they were on instead of stranding them on the
+    // generic dashboard post-login.
     const redirect = encodeURIComponent(window.location.pathname);
     window.location.assign(`/login?redirect=${redirect}`);
     throw new ApiError(401, 'UNAUTHORIZED');

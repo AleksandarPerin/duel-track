@@ -16,6 +16,7 @@ import {
   QUEUE_UPDATED_EVENT,
   QueuedStatusEntry,
 } from '../offline/syncQueue';
+import { AppHeader } from '../components/AppHeader';
 
 interface CacheFallback<T> {
   data: T;
@@ -339,86 +340,123 @@ export function RoundPage() {
     [playersById],
   );
 
-  if (!tournamentId || !roundNum) return <main>Invalid round URL.</main>;
-  if (loading) return <main>Loading round…</main>;
-  if (loadError) return <main role="alert">{loadError}</main>;
-  if (!pairingsData) return <main>No data.</main>;
+  if (!tournamentId || !roundNum) {
+    return (
+      <>
+        <AppHeader />
+        <main className="page">Invalid round URL.</main>
+      </>
+    );
+  }
+  if (loading) {
+    return (
+      <>
+        <AppHeader />
+        <main className="page">Loading round…</main>
+      </>
+    );
+  }
+  if (loadError) {
+    return (
+      <>
+        <AppHeader />
+        <main className="page" role="alert">
+          {loadError}
+        </main>
+      </>
+    );
+  }
+  if (!pairingsData) {
+    return (
+      <>
+        <AppHeader />
+        <main className="page">No data.</main>
+      </>
+    );
+  }
 
   return (
-    <main>
-      <h1>
-        Round {pairingsData.round.round_number} — {pairingsData.round.phase} ({pairingsData.round.status})
-      </h1>
-      {!isOnline && <p role="status">Offline — results will be queued and sent once you're back online.</p>}
-      {cacheBanner && <p role="status">{cacheBanner}</p>}
+    <>
+      <AppHeader />
+      <main className="page">
+        <h1>
+          Round {pairingsData.round.round_number} — {pairingsData.round.phase} ({pairingsData.round.status})
+        </h1>
+        {!isOnline && <p role="status">Offline — results will be queued and sent once you're back online.</p>}
+        {cacheBanner && <p role="status">{cacheBanner}</p>}
 
-      <section>
-        <h2>Pairings</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>Table</th>
-              <th>Player 1</th>
-              <th>Player 2</th>
-              <th>Result</th>
-            </tr>
-          </thead>
-          <tbody>
-            {pairingsData.pairings.map((pairing) => (
-              <tr key={pairing.id}>
-                <td>{pairing.table_number}</td>
-                <td>{nameFor(pairing.player1_id)}</td>
-                <td>{pairing.is_bye ? 'BYE' : nameFor(pairing.player2_id)}</td>
-                <td>
-                  {pairing.is_bye
-                    ? '—'
-                    : renderResultCell({
-                        tournamentId,
-                        pairing,
-                        entered: enteredPairingIds.has(pairing.id),
-                        queuedStatus: queuedStatus.get(pairing.id),
-                        onSubmitted: () =>
-                          setEnteredPairingIds((prev) => new Set(prev).add(pairing.id)),
-                      })}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
+        <section>
+          <h2>Pairings</h2>
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Table</th>
+                  <th>Player 1</th>
+                  <th>Player 2</th>
+                  <th>Result</th>
+                </tr>
+              </thead>
+              <tbody>
+                {pairingsData.pairings.map((pairing) => (
+                  <tr key={pairing.id}>
+                    <td>{pairing.table_number}</td>
+                    <td>{nameFor(pairing.player1_id)}</td>
+                    <td>{pairing.is_bye ? 'BYE' : nameFor(pairing.player2_id)}</td>
+                    <td>
+                      {pairing.is_bye
+                        ? '—'
+                        : renderResultCell({
+                            tournamentId,
+                            pairing,
+                            entered: enteredPairingIds.has(pairing.id),
+                            queuedStatus: queuedStatus.get(pairing.id),
+                            onSubmitted: () =>
+                              setEnteredPairingIds((prev) => new Set(prev).add(pairing.id)),
+                          })}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
 
-      <section>
-        <h2>Standings</h2>
-        {standings.length === 0 && <p>Standings not yet available for this round.</p>}
-        <table>
-          <thead>
-            <tr>
-              <th>Rank</th>
-              <th>Player</th>
-              <th>Points</th>
-              <th>W-L-D</th>
-              <th>OMW%</th>
-              <th>GW%</th>
-              <th>OGW%</th>
-            </tr>
-          </thead>
-          <tbody>
-            {standings.map((s) => (
-              <tr key={s.id}>
-                <td>{s.rank ?? '—'}</td>
-                <td>{nameFor(s.player_id)}</td>
-                <td>{s.match_points}</td>
-                <td>
-                  {s.match_wins}-{s.match_losses}-{s.match_draws}
-                </td>
-                <td>{s.omw_percent != null ? `${s.omw_percent}%` : '—'}</td>
-                <td>{s.gw_percent != null ? `${s.gw_percent}%` : '—'}</td>
-                <td>{s.ogw_percent != null ? `${s.ogw_percent}%` : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </section>
-    </main>
+        <section>
+          <h2>Standings</h2>
+          {standings.length === 0 && <p>Standings not yet available for this round.</p>}
+          <div className="table-scroll">
+            <table>
+              <thead>
+                <tr>
+                  <th>Rank</th>
+                  <th>Player</th>
+                  <th>Points</th>
+                  <th>W-L-D</th>
+                  <th>OMW%</th>
+                  <th>GW%</th>
+                  <th>OGW%</th>
+                </tr>
+              </thead>
+              <tbody>
+                {standings.map((s) => (
+                  <tr key={s.id}>
+                    <td>{s.rank ?? '—'}</td>
+                    <td>{nameFor(s.player_id)}</td>
+                    <td>{s.match_points}</td>
+                    <td>
+                      {s.match_wins}-{s.match_losses}-{s.match_draws}
+                    </td>
+                    <td>{s.omw_percent != null ? `${s.omw_percent}%` : '—'}</td>
+                    <td>{s.gw_percent != null ? `${s.gw_percent}%` : '—'}</td>
+                    <td>{s.ogw_percent != null ? `${s.ogw_percent}%` : '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </>
   );
 }

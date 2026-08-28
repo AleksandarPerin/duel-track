@@ -11,4 +11,5 @@ export * from './types/audit';
 export * from './types/analytics';
 export * from './types/archive';
 export * from './types/api-token';
+export * from './types/assignment';
 export * from './constants/mtg';
