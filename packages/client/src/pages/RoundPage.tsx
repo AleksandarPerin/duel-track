@@ -1,6 +1,6 @@
 import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router-dom';
-import type { Pairing, ResultInput, ResultOutcome, Standing, TournamentPlayerView } from '@dueltrack/shared';
+import type { Pairing, ResultInput, Standing, TournamentPlayerView } from '@dueltrack/shared';
 import { getPlayers } from '../api/tournaments';
 import { getPairings, PairingsResponse } from '../api/pairings';
 import { getStandings } from '../api/standings';
@@ -71,30 +71,21 @@ function formatRelativeTime(fetchedAt: number): string {
   return `${minutes} minutes ago`;
 }
 
-const OUTCOME_LABELS: Record<ResultOutcome, string> = {
-  player1_win: 'Player 1 wins',
-  player2_win: 'Player 2 wins',
-  draw: 'Draw',
-  intentional_draw: 'Intentional draw',
-  double_loss: 'Double loss',
-};
-
-// Mirrors result.routes.ts's ResultInputSchema.superRefine — client-side only,
-// for immediate feedback. The server stays authoritative; this never replaces
-// its validation.
-function defaultInputFor(outcome: ResultOutcome, prevP2OrP1 = 0): ResultInput {
-  switch (outcome) {
-    case 'intentional_draw':
-    case 'double_loss':
-      return { outcome, player1_game_wins: 0, player2_game_wins: 0, games_drawn: 0 };
-    case 'player1_win':
-      return { outcome, player1_game_wins: 2, player2_game_wins: prevP2OrP1, games_drawn: 0 };
-    case 'player2_win':
-      return { outcome, player1_game_wins: prevP2OrP1, player2_game_wins: 2, games_drawn: 0 };
-    case 'draw':
-      return { outcome, player1_game_wins: 1, player2_game_wins: 1, games_drawn: 1 };
-  }
-}
+// Every legal final score for a Bo3 match, exactly matching the DB's
+// valid_game_total CHECK constraint (results.ts migration) — one option per
+// row, so a judge picks the literal score they saw at the table instead of
+// an abstract outcome plus a separate "loser's games" count (the two-step
+// version read as confusing: a bare "0 games" / "1 game" dropdown never
+// stated the winner's own score, or which player it was counting).
+const SCORE_OPTIONS: { key: string; label: string; input: ResultInput }[] = [
+  { key: 'p1-2-0', label: 'Player 1 wins 2–0', input: { outcome: 'player1_win', player1_game_wins: 2, player2_game_wins: 0, games_drawn: 0 } },
+  { key: 'p1-2-1', label: 'Player 1 wins 2–1', input: { outcome: 'player1_win', player1_game_wins: 2, player2_game_wins: 1, games_drawn: 0 } },
+  { key: 'p2-2-0', label: 'Player 2 wins 2–0', input: { outcome: 'player2_win', player1_game_wins: 0, player2_game_wins: 2, games_drawn: 0 } },
+  { key: 'p2-2-1', label: 'Player 2 wins 2–1', input: { outcome: 'player2_win', player1_game_wins: 1, player2_game_wins: 2, games_drawn: 0 } },
+  { key: 'draw', label: 'Draw (1–1)', input: { outcome: 'draw', player1_game_wins: 1, player2_game_wins: 1, games_drawn: 1 } },
+  { key: 'intentional_draw', label: 'Intentional draw', input: { outcome: 'intentional_draw', player1_game_wins: 0, player2_game_wins: 0, games_drawn: 0 } },
+  { key: 'double_loss', label: 'Double loss', input: { outcome: 'double_loss', player1_game_wins: 0, player2_game_wins: 0, games_drawn: 0 } },
+];
 
 function ResultForm({
   tournamentId,
@@ -105,18 +96,15 @@ function ResultForm({
   pairing: Pairing;
   onSubmitted: () => void;
 }) {
-  const [outcome, setOutcome] = useState<ResultOutcome>('player1_win');
-  const [loserGames, setLoserGames] = useState(0);
+  const [scoreKey, setScoreKey] = useState(SCORE_OPTIONS[0].key);
   const [submitting, setSubmitting] = useState(false);
   const [feedback, setFeedback] = useState<{ kind: 'ok' | 'error'; message: string } | null>(null);
-
-  const showLoserGamesInput = outcome === 'player1_win' || outcome === 'player2_win';
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
     setSubmitting(true);
     setFeedback(null);
-    const body = defaultInputFor(outcome, loserGames);
+    const body = SCORE_OPTIONS.find((o) => o.key === scoreKey)!.input;
 
     // Offline entirely: skip the network attempt and queue immediately —
     // trying first would just cost a timeout for a result that's going in
@@ -166,26 +154,16 @@ function ResultForm({
   return (
     <form onSubmit={handleSubmit}>
       <select
-        aria-label={`Outcome for table ${pairing.table_number}`}
-        value={outcome}
-        onChange={(e) => setOutcome(e.target.value as ResultOutcome)}
+        aria-label={`Result for table ${pairing.table_number}`}
+        value={scoreKey}
+        onChange={(e) => setScoreKey(e.target.value)}
       >
-        {(Object.keys(OUTCOME_LABELS) as ResultOutcome[]).map((o) => (
-          <option key={o} value={o}>
-            {OUTCOME_LABELS[o]}
+        {SCORE_OPTIONS.map((o) => (
+          <option key={o.key} value={o.key}>
+            {o.label}
           </option>
         ))}
       </select>
-      {showLoserGamesInput && (
-        <select
-          aria-label="Loser's game wins"
-          value={loserGames}
-          onChange={(e) => setLoserGames(Number(e.target.value))}
-        >
-          <option value={0}>0 games</option>
-          <option value={1}>1 game</option>
-        </select>
-      )}
       <button type="submit" disabled={submitting}>
         {submitting ? 'Submitting…' : 'Submit result'}
       </button>
