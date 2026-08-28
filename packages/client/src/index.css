@@ -299,6 +299,7 @@ tbody tr:last-child td {
 
 .assignment-card__meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
@@ -307,6 +308,20 @@ tbody tr:last-child td {
 
 .assignment-card__no-round {
   font-size: 0.9rem;
+}
+
+.assignment-card__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* .button--primary defaults to width:100% for standalone form-submit use —
+   wrong here, where it sits inline next to other buttons/text and would
+   otherwise skew this row's flex-shrink/wrap behavior on narrow screens. */
+.assignment-card__actions .button--primary {
+  width: auto;
 }
 
 .badge {
