@@ -8,6 +8,8 @@
   --color-border: #e1def0;
   --color-danger-bg: #fdecea;
   --color-danger-text: #8f2020;
+  --color-warning-bg: #fff4e0;
+  --color-warning-text: #8a5a00;
   --color-status-bg: #eef0fc;
   --color-status-text: #33327a;
   --radius: 10px;
@@ -228,6 +230,50 @@ form button[type='submit']:hover {
   padding: var(--space-2) var(--space-3);
   border-radius: var(--radius);
   margin-bottom: var(--space-3);
+}
+
+.round-timer {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  margin: var(--space-3) 0;
+  border-radius: var(--radius);
+  background: var(--color-surface);
+  border: 2px solid var(--color-border);
+}
+
+.round-timer__clock {
+  font-size: 2.5rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums; /* fixed-width digits so the box doesn't jitter every second */
+  line-height: 1;
+}
+
+.round-timer__label {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.round-timer--low {
+  background: var(--color-warning-bg);
+  border-color: var(--color-warning-text);
+}
+.round-timer--low .round-timer__clock,
+.round-timer--low .round-timer__label {
+  color: var(--color-warning-text);
+}
+
+.round-timer--expired {
+  background: var(--color-danger-bg);
+  border-color: var(--color-danger-text);
+}
+.round-timer--expired .round-timer__clock,
+.round-timer--expired .round-timer__label {
+  color: var(--color-danger-text);
 }
 
 /* ── tables ─────────────────────────────────────────────────────────── */

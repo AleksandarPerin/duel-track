@@ -8,6 +8,8 @@ export interface Round {
   phase: RoundPhase;
   status: RoundStatus;
   timer_minutes: number;
-  started_at?: string;
-  ended_at?: string;
+  // Nullable, not just optional: Postgres NULL always serializes as JSON
+  // null over the wire, never an absent key — `pg` includes every column.
+  started_at?: string | null;
+  ended_at?: string | null;
 }
