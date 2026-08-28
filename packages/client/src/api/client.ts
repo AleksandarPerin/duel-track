@@ -48,7 +48,7 @@ export async function ensureCsrfToken(): Promise<string | null> {
 
 export async function apiRequest<T>(
   path: string,
-  opts: { method?: string; body?: unknown } = {},
+  opts: { method?: string; body?: unknown; skipAuthRedirect?: boolean } = {},
 ): Promise<T> {
   const method = opts.method ?? 'GET';
   const headers: Record<string, string> = {};
@@ -65,7 +65,7 @@ export async function apiRequest<T>(
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
   });
 
-  if (res.status === 401) {
+  if (res.status === 401 && !opts.skipAuthRedirect) {
     // Fine for direct, user-initiated requests (page loads, login-gated
     // fetches) — the offline sync queue deliberately bypasses this by using
     // raw fetch() instead of apiRequest(), since redirecting mid-flush would
@@ -73,6 +73,10 @@ export async function apiRequest<T>(
     // Carries the current path as ?redirect= so LoginPage can send the judge
     // back to the round page they were on instead of stranding them on the
     // generic dashboard post-login.
+    // login() passes skipAuthRedirect — a 401 there means "wrong credentials,"
+    // not "your session expired," and this path was blowing away the login
+    // form (and its error message) with a full-page reload back to itself
+    // before the user could ever read why it failed.
     const redirect = encodeURIComponent(window.location.pathname);
     window.location.assign(`/login?redirect=${redirect}`);
     throw new ApiError(401, 'UNAUTHORIZED');
