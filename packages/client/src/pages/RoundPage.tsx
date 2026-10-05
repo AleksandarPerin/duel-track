@@ -18,6 +18,7 @@ import {
 } from '../offline/syncQueue';
 import { AppHeader } from '../components/AppHeader';
 import { RoundTimer } from '../components/RoundTimer';
+import { PublishStandings } from '../components/PublishStandings';
 
 interface CacheFallback<T> {
   data: T;
@@ -252,6 +253,7 @@ export function RoundPage() {
   const [playersById, setPlayersById] = useState<Map<string, string>>(new Map());
   const [pairingsData, setPairingsData] = useState<PairingsResponse | null>(null);
   const [standings, setStandings] = useState<Standing[]>([]);
+  const [standingsFromCache, setStandingsFromCache] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [enteredPairingIds, setEnteredPairingIds] = useState<Set<string>>(new Set());
@@ -310,6 +312,7 @@ export function RoundPage() {
         setPlayersById(new Map(playersResult.data.map((p) => [p.id, p.display_name])));
         setPairingsData(pairings);
         setStandings(standingsResult.data);
+        setStandingsFromCache(standingsResult.fromCache);
         // Seeds from the server's view of "already has a result" — without
         // this, a reload (routine on mobile: OS backgrounding, PWA
         // relaunch, an autoUpdate reload) would forget every result already
@@ -439,6 +442,21 @@ export function RoundPage() {
         <section>
           <h2>Standings</h2>
           {standings.length === 0 && <p>Standings not yet available for this round.</p>}
+          {standings.length > 0 && !standingsFromCache && (
+            <PublishStandings
+              tournamentId={tournamentId}
+              roundNumber={roundNum}
+              isPublished={standings[0].is_published}
+              isOnline={isOnline}
+              // Matched on the rows' own round_number: a publish that resolves
+              // after the URL moved to another round must not mark that round.
+              onPublished={(publishedRound) =>
+                setStandings((prev) =>
+                  prev.map((s) => (s.round_number === publishedRound ? { ...s, is_published: true } : s)),
+                )
+              }
+            />
+          )}
           <div className="table-scroll">
             <table>
               <thead>

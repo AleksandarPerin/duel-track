@@ -457,3 +457,20 @@ tbody tr:last-child td {
 .registration-row [role='alert'] {
   flex-basis: 100%;
 }
+
+.publish-standings {
+  margin-bottom: var(--space-3);
+}
+
+.publish-standings__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Same reasoning as .assignment-card__actions: inline next to text/buttons,
+   not a standalone full-width form submit. */
+.publish-standings__actions .button--primary {
+  width: auto;
+}

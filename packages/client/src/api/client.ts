@@ -48,7 +48,7 @@ export async function ensureCsrfToken(): Promise<string | null> {
 
 export async function apiRequest<T>(
   path: string,
-  opts: { method?: string; body?: unknown; skipAuthRedirect?: boolean } = {},
+  opts: { method?: string; body?: unknown; skipAuthRedirect?: boolean; cache?: RequestCache } = {},
 ): Promise<T> {
   const method = opts.method ?? 'GET';
   const headers: Record<string, string> = {};
@@ -56,13 +56,20 @@ export async function apiRequest<T>(
   // (FST_ERR_CTP_EMPTY_JSON_BODY) — only set it when there's actually a body,
   // e.g. a bodyless POST like /auth/logout.
   if (opts.body !== undefined) headers['Content-Type'] = 'application/json';
-  if (method !== 'GET' && csrfToken) headers['x-csrf-token'] = csrfToken;
+  // ensureCsrfToken(), not the in-memory token as-is: if the boot-time prime
+  // failed (app opened on bad venue wifi), every mutation would otherwise
+  // 403 on a missing token until a full reload, however often it's retried.
+  if (method !== 'GET') {
+    const token = await ensureCsrfToken();
+    if (token) headers['x-csrf-token'] = token;
+  }
 
   const res = await fetch(`/api${path}`, {
     method,
     credentials: 'include',
     headers,
     body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    cache: opts.cache,
   });
 
   if (res.status === 401 && !opts.skipAuthRedirect) {
