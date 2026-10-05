@@ -183,7 +183,7 @@ export async function updateTournament(
   id: string,
   organizerId: string,
   input: UpdateTournamentInput,
-): Promise<{ tournament: Tournament; changed: boolean }> {
+): Promise<{ tournament: Tournament; changed: boolean; changedFields: Partial<UpdateTournamentInput> }> {
   const tournament = await getTournament(id);
 
   if (tournament.organizer_id !== organizerId) {
@@ -196,15 +196,33 @@ export async function updateTournament(
     );
   }
 
+  // Only fields whose value actually differs from the stored row: a form that
+  // resubmits every field shouldn't make the audit log claim it changed all
+  // of them. scheduled_at is compared as an instant, since the stored value
+  // and the submitted ISO string can spell the same time differently.
+  const toTime = (v: unknown) => (v == null ? null : new Date(v as string).getTime());
+  const changedFields: Partial<UpdateTournamentInput> = {};
+  if (input.name !== undefined && input.name !== tournament.name) changedFields.name = input.name;
+  if (input.venue !== undefined && (input.venue ?? null) !== (tournament.venue ?? null)) {
+    changedFields.venue = input.venue;
+  }
+  if (input.scheduled_at !== undefined && toTime(input.scheduled_at) !== toTime(tournament.scheduled_at)) {
+    changedFields.scheduled_at = input.scheduled_at;
+  }
+
+  // Column names go into the SQL text, so they come from this fixed map —
+  // never from the keys of an object that could one day carry client input.
+  const COLUMNS = { name: 'name', venue: 'venue', scheduled_at: 'scheduled_at' } as const;
   const updates: string[] = [];
   const values: unknown[] = [];
   let idx = 1;
+  for (const key of Object.keys(COLUMNS) as (keyof typeof COLUMNS)[]) {
+    if (!(key in changedFields)) continue;
+    updates.push(`${COLUMNS[key]} = $${idx++}`);
+    values.push(changedFields[key]);
+  }
 
-  if (input.name !== undefined) { updates.push(`name = $${idx++}`); values.push(input.name); }
-  if (input.venue !== undefined) { updates.push(`venue = $${idx++}`); values.push(input.venue); }
-  if (input.scheduled_at !== undefined) { updates.push(`scheduled_at = $${idx++}`); values.push(input.scheduled_at); }
-
-  if (updates.length === 0) return { tournament, changed: false };
+  if (updates.length === 0) return { tournament, changed: false, changedFields };
 
   values.push(id);
   const { rows } = await pool.query<Tournament>(
@@ -215,7 +233,7 @@ export async function updateTournament(
   );
   const updated = rows[0];
   if (!updated) throw new AppError('TOURNAMENT_NOT_FOUND', 'Tournament was deleted concurrently');
-  return { tournament: updated, changed: true };
+  return { tournament: updated, changed: true, changedFields };
 }
 
 // ── Player management ──────────────────────────────────────────────────────
@@ -351,7 +369,7 @@ export async function removePlayer(
   tournamentId: string,
   playerId: string,
   organizerId: string,
-): Promise<void> {
+): Promise<{ display_name: string | null }> {
   const tournament = await getTournament(tournamentId);
   if (tournament.organizer_id !== organizerId) {
     throw new AppError('FORBIDDEN', 'Only the organizer can remove players');
@@ -360,11 +378,15 @@ export async function removePlayer(
     throw new AppError('TOURNAMENT_NOT_EDITABLE', 'Cannot remove players after tournament starts');
   }
 
-  const { rowCount } = await pool.query(
-    'DELETE FROM tournament_players WHERE id = $1 AND tournament_id = $2',
+  // Returns the name as it was at deletion, for the audit entry — the row is
+  // gone afterwards, so the log can't look it up later.
+  const { rows } = await pool.query<{ display_name: string | null }>(
+    `DELETE FROM tournament_players tp WHERE tp.id = $1 AND tp.tournament_id = $2
+     RETURNING COALESCE((SELECT u.display_name FROM users u WHERE u.id = tp.user_id), tp.guest_name) AS display_name`,
     [playerId, tournamentId],
   );
-  if (!rowCount) throw new AppError('PLAYER_NOT_FOUND', 'Player not found in this tournament');
+  if (!rows[0]) throw new AppError('PLAYER_NOT_FOUND', 'Player not found in this tournament');
+  return rows[0];
 }
 
 export async function reorderSeeds(

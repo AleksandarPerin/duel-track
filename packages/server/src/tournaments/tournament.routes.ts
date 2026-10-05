@@ -127,7 +127,7 @@ const tournamentRoutes: FastifyPluginAsync = async (fastify) => {
 
       const user = request.user!;
       try {
-        const { tournament, changed } = await updateTournament(id, user.id, parsed.data);
+        const { tournament, changed, changedFields } = await updateTournament(id, user.id, parsed.data);
 
         if (changed) {
           await safeAuditLog(request.log, {
@@ -136,7 +136,7 @@ const tournamentRoutes: FastifyPluginAsync = async (fastify) => {
             action: 'tournament.updated',
             entityType: 'tournament',
             entityId: id,
-            detail: parsed.data as Record<string, unknown>,
+            detail: changedFields as Record<string, unknown>,
           });
         }
 
@@ -239,7 +239,7 @@ const tournamentRoutes: FastifyPluginAsync = async (fastify) => {
 
       const user = request.user!;
       try {
-        await removePlayer(id, playerId, user.id);
+        const removed = await removePlayer(id, playerId, user.id);
 
         await safeAuditLog(request.log, {
           tournamentId: id,
@@ -247,7 +247,7 @@ const tournamentRoutes: FastifyPluginAsync = async (fastify) => {
           action: 'player.removed',
           entityType: 'tournament_player',
           entityId: playerId,
-          detail: { player_id: playerId },
+          detail: { player_id: playerId, display_name: removed.display_name },
         });
 
         return reply.code(204).send();

@@ -190,11 +190,18 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
         const result = await forceAdvanceRound(id, user.id, responsible);
 
         const detail = result.completed
-          ? { final_round: result.roundNumber, tournament_completed: true, forced_results: result.forced_results, reason }
+          ? {
+              final_round: result.roundNumber,
+              tournament_completed: true,
+              forced_results: result.forced_results,
+              forced_breakdown: result.forced_breakdown,
+              reason,
+            }
           : {
               round_number: result.round.round_number,
               player_count: result.pairings.length,
               forced_results: result.forced_results,
+              forced_breakdown: result.forced_breakdown,
               reason,
               warning: result.warning ?? null,
             };

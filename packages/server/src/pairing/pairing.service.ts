@@ -359,11 +359,19 @@ export async function advanceRound(
   }
 }
 
+// How the unfinished matches of a force-advanced round were settled (PRD
+// TRN-05): a double loss, unless exactly one player was named responsible,
+// in which case that player alone takes the 0-2 loss.
+export interface ForcedResultBreakdown {
+  double_losses: number;
+  losses_for: string[];
+}
+
 export async function forceAdvanceRound(
   tournamentId: string,
   organizerId: string,
   responsiblePlayerIds: string[],
-): Promise<AdvanceRoundResult & { forced_results: number }> {
+): Promise<AdvanceRoundResult & { forced_results: number; forced_breakdown: ForcedResultBreakdown }> {
   const client = await pool.connect();
   let originalError: unknown;
   try {
@@ -391,6 +399,8 @@ export async function forceAdvanceRound(
     // 0-2 match loss and their opponent gets a 2-0 win. Both responsible (or neither) → double_loss.
     const responsible = new Set(responsiblePlayerIds);
     let forcedCount = 0;
+    let doubleLosses = 0;
+    const lossPlayerIds: string[] = [];
     for (const p of incomplete) {
       const r1 = responsible.has(p.player1_id);
       const r2 = responsible.has(p.player2_id);
@@ -406,12 +416,32 @@ export async function forceAdvanceRound(
          ON CONFLICT (pairing_id) DO NOTHING`,
         [p.id, p1wins, p2wins, outcome, organizerId],
       );
-      forcedCount += ins.rowCount ?? 0;
+      if ((ins.rowCount ?? 0) > 0) {
+        forcedCount++;
+        if (outcome === 'double_loss') doubleLosses++;
+        else lossPlayerIds.push(outcome === 'player2_win' ? p.player1_id : p.player2_id);
+      }
     }
+
+    // Names captured now, for the audit entry: who was held responsible is
+    // the part of a force-advance an organizer would need to justify later.
+    const { rows: lossRows } = lossPlayerIds.length
+      ? await client.query<{ display_name: string }>(
+          `SELECT COALESCE(u.display_name, tp.guest_name) AS display_name
+           FROM tournament_players tp LEFT JOIN users u ON u.id = tp.user_id
+           WHERE tp.id = ANY($1::uuid[]) AND tp.tournament_id = $2
+           ORDER BY display_name`,
+          [lossPlayerIds, tournamentId],
+        )
+      : { rows: [] };
+    const forcedBreakdown: ForcedResultBreakdown = {
+      double_losses: doubleLosses,
+      losses_for: lossRows.map((r) => r.display_name),
+    };
 
     const advResult = await closeRoundAndContinue(client, tournamentId, activeRoundId, currentRound, totalRounds, format, topCut);
     await client.query('COMMIT');
-    return { ...advResult, forced_results: forcedCount };
+    return { ...advResult, forced_results: forcedCount, forced_breakdown: forcedBreakdown };
   } catch (err) {
     originalError = err;
     try { await client.query('ROLLBACK'); } catch (e) { console.error('ROLLBACK failed in forceAdvanceRound', e); }
