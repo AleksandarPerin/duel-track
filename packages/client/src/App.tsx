@@ -8,6 +8,7 @@ import { RoundPage } from './pages/RoundPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { TournamentRegistrationsPage } from './pages/TournamentRegistrationsPage';
 import { PublicTournamentPage } from './pages/PublicTournamentPage';
+import { AuditLogPage } from './pages/AuditLogPage';
 
 export function App() {
   const [user, setUser] = useState<LoginResponse | null>(null);
@@ -19,6 +20,7 @@ export function App() {
         <Route path="/dashboard" element={<DashboardPage />} />
         <Route path="/t/:tournamentId/r/:roundNumber" element={<RoundPage />} />
         <Route path="/t/:tournamentId/registrations" element={<TournamentRegistrationsPage />} />
+        <Route path="/t/:tournamentId/audit" element={<AuditLogPage />} />
         {/* Public — no auth required, reached via the organizer's shareable link,
             or a player's own confirmation screen after registering. */}
         <Route path="/register/:token" element={<RegisterPage />} />

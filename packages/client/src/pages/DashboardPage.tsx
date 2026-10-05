@@ -80,6 +80,11 @@ function AssignmentRow({ assignment }: { assignment: TournamentAssignmentView })
         <span className={`badge ${is_organizer ? 'badge--organizer' : 'badge--judge'}`}>
           {is_organizer ? 'Organizer' : 'Judge'}
         </span>
+        {is_organizer && (
+          <Link className="assignment-card__log-link" to={`/t/${tournament_id}/audit`}>
+            Activity log
+          </Link>
+        )}
       </div>
       <div className="assignment-card__meta">
         <span>{TOURNAMENT_STATUS_LABELS[tournament_status]}</span>
