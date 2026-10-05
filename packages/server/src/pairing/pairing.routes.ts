@@ -127,9 +127,15 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
       const id = parseUUID(request.params.id);
       if (!id) return reply.code(400).send({ error: 'INVALID_ID' });
 
+      const body = request.body as { round_number?: unknown } | null | undefined;
+      const expectedRound = body?.round_number;
+      if (expectedRound !== undefined && !(Number.isInteger(expectedRound) && (expectedRound as number) >= 1)) {
+        return reply.code(400).send({ error: 'INVALID_ROUND_NUMBER' });
+      }
+
       const user = request.user!;
       try {
-        const result = await advanceRound(id, user.id);
+        const result = await advanceRound(id, user.id, expectedRound as number | undefined);
 
         if (result.completed) {
           await safeAudit(request.log, {
@@ -174,7 +180,11 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
       const id = parseUUID(request.params.id);
       if (!id) return reply.code(400).send({ error: 'INVALID_ID' });
 
-      const body = request.body as { reason?: string; responsible_player_ids?: unknown } | null;
+      const body = request.body as { reason?: string; responsible_player_ids?: unknown; round_number?: unknown } | null;
+      const expectedRound = body?.round_number;
+      if (expectedRound !== undefined && !(Number.isInteger(expectedRound) && (expectedRound as number) >= 1)) {
+        return reply.code(400).send({ error: 'INVALID_ROUND_NUMBER' });
+      }
       const reason = typeof body?.reason === 'string' && body.reason.trim()
         ? body.reason.trim()
         : null;
@@ -187,7 +197,7 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
 
       const user = request.user!;
       try {
-        const result = await forceAdvanceRound(id, user.id, responsible);
+        const result = await forceAdvanceRound(id, user.id, responsible, expectedRound as number | undefined);
 
         const detail = result.completed
           ? {
@@ -237,10 +247,13 @@ const pairingRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         try {
-          await assertTournamentViewer(id, request.user!.id);
+          const tournament = await assertTournamentViewer(id, request.user!.id);
           const data = await getRoundPairings(id, rn);
           if (!data) return reply.code(404).send({ error: 'ROUND_NOT_FOUND' });
-          return reply.send(data);
+          // Lets the round page show organizer-only controls (advance round)
+          // without a separate "who am I" call; the actions themselves are
+          // still organizer-checked server-side.
+          return reply.send({ ...data, viewer_is_organizer: tournament.organizer_id === request.user!.id });
         } catch (err) {
           return handleError(err, reply);
         }

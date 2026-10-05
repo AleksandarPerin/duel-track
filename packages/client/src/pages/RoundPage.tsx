@@ -1,24 +1,19 @@
-import { FormEvent, useEffect, useMemo, useRef, useState } from 'react';
-import { useParams } from 'react-router-dom';
-import type { Pairing, ResultInput, Standing, TournamentPlayerView } from '@dueltrack/shared';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import type { Standing, TournamentPlayerView } from '@dueltrack/shared';
 import { getPlayers } from '../api/tournaments';
 import { getPairings, PairingsResponse } from '../api/pairings';
 import { getStandings } from '../api/standings';
-import { submitResult } from '../api/results';
 import { ApiError } from '../api/client';
 import { getCachedPlayers, getCachedStandings, setCachedPlayers, setCachedStandings } from '../offline/standingsCache';
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
-import {
-  discardQueuedForPairing,
-  enqueueResult,
-  getQueuedStatusForTournament,
-  notifyQueueUpdated,
-  QUEUE_UPDATED_EVENT,
-  QueuedStatusEntry,
-} from '../offline/syncQueue';
+import { getQueuedStatusForTournament, QUEUE_UPDATED_EVENT, QueuedStatusEntry } from '../offline/syncQueue';
 import { AppHeader } from '../components/AppHeader';
 import { RoundTimer } from '../components/RoundTimer';
 import { PublishStandings } from '../components/PublishStandings';
+import { renderResultCell } from '../components/ResultEntry';
+import { AdvanceRound } from '../components/AdvanceRound';
+import type { AdvanceRoundResponse } from '../api/pairings';
 
 interface CacheFallback<T> {
   data: T;
@@ -73,182 +68,28 @@ function formatRelativeTime(fetchedAt: number): string {
   return `${minutes} minutes ago`;
 }
 
-// Every legal final score for a Bo3 match, exactly matching the DB's
-// valid_game_total CHECK constraint (results.ts migration) — one option per
-// row, so a judge picks the literal score they saw at the table instead of
-// an abstract outcome plus a separate "loser's games" count (the two-step
-// version read as confusing: a bare "0 games" / "1 game" dropdown never
-// stated the winner's own score, or which player it was counting). Labels
-// use the actual player names rather than "Player 1"/"Player 2" — a judge
-// glancing at a generic label after tapping through a form has no easy way
-// to tell which physical player "1" refers to.
-function buildScoreOptions(player1Name: string, player2Name: string): { key: string; label: string; input: ResultInput }[] {
-  return [
-    { key: 'p1-2-0', label: `${player1Name} wins 2–0`, input: { outcome: 'player1_win', player1_game_wins: 2, player2_game_wins: 0, games_drawn: 0 } },
-    { key: 'p1-2-1', label: `${player1Name} wins 2–1`, input: { outcome: 'player1_win', player1_game_wins: 2, player2_game_wins: 1, games_drawn: 0 } },
-    { key: 'p2-2-0', label: `${player2Name} wins 2–0`, input: { outcome: 'player2_win', player1_game_wins: 0, player2_game_wins: 2, games_drawn: 0 } },
-    { key: 'p2-2-1', label: `${player2Name} wins 2–1`, input: { outcome: 'player2_win', player1_game_wins: 1, player2_game_wins: 2, games_drawn: 0 } },
-    { key: 'draw', label: 'Draw (1–1)', input: { outcome: 'draw', player1_game_wins: 1, player2_game_wins: 1, games_drawn: 1 } },
-    { key: 'intentional_draw', label: 'Intentional draw', input: { outcome: 'intentional_draw', player1_game_wins: 0, player2_game_wins: 0, games_drawn: 0 } },
-    { key: 'double_loss', label: 'Double loss', input: { outcome: 'double_loss', player1_game_wins: 0, player2_game_wins: 0, games_drawn: 0 } },
-  ];
-}
-
-function ResultForm({
-  tournamentId,
-  pairing,
-  player1Name,
-  player2Name,
-  onSubmitted,
-}: {
-  tournamentId: string;
-  pairing: Pairing;
-  player1Name: string;
-  player2Name: string;
-  onSubmitted: () => void;
-}) {
-  const scoreOptions = useMemo(() => buildScoreOptions(player1Name, player2Name), [player1Name, player2Name]);
-  const [scoreKey, setScoreKey] = useState(scoreOptions[0].key);
-  const [submitting, setSubmitting] = useState(false);
-  const [feedback, setFeedback] = useState<{ kind: 'ok' | 'error'; message: string } | null>(null);
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setSubmitting(true);
-    setFeedback(null);
-    const body = scoreOptions.find((o) => o.key === scoreKey)!.input;
-
-    // Offline entirely: skip the network attempt and queue immediately —
-    // trying first would just cost a timeout for a result that's going in
-    // the queue either way.
-    if (!navigator.onLine) {
-      await enqueueResult(tournamentId, pairing.id, body);
-      setFeedback({ kind: 'ok', message: "Offline — result queued, will sync when you're back online." });
-      setSubmitting(false);
-      return;
-    }
-
-    // Clears a stale 'failed'/'conflict' queue entry (see
-    // discardQueuedForPairing) when a pairing turns out to already be
-    // recorded server-side, so a leftover queue record doesn't linger.
-    async function markRecorded() {
-      setFeedback({ kind: 'ok', message: 'Result recorded.' });
-      await discardQueuedForPairing(tournamentId, pairing.id);
-      notifyQueueUpdated();
-      onSubmitted();
-    }
-
-    try {
-      await submitResult(tournamentId, pairing.id, body);
-      await markRecorded();
-    } catch (err) {
-      if (err instanceof ApiError) {
-        if (err.code === 'RESULT_ALREADY_ENTERED') {
-          // Already recorded — most likely by this same judge in an earlier
-          // session (see the has_result seeding above); treat it as success
-          // rather than surfacing a confusing raw error.
-          await markRecorded();
-        } else {
-          setFeedback({ kind: 'error', message: `${err.code}: ${String((err.details as { message?: string })?.message ?? '')}`.trim() });
-        }
-      } else {
-        // navigator.onLine said we were online but the request still threw —
-        // e.g. connection dropped mid-request. Queue rather than lose the
-        // result the judge just entered.
-        await enqueueResult(tournamentId, pairing.id, body);
-        setFeedback({ kind: 'ok', message: 'Connection lost — result queued, will sync when back online.' });
-      }
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <form onSubmit={handleSubmit}>
-      <select
-        aria-label={`Result for table ${pairing.table_number}`}
-        value={scoreKey}
-        onChange={(e) => setScoreKey(e.target.value)}
-      >
-        {scoreOptions.map((o) => (
-          <option key={o.key} value={o.key}>
-            {o.label}
-          </option>
-        ))}
-      </select>
-      <button type="submit" disabled={submitting}>
-        {submitting ? 'Submitting…' : 'Submit result'}
-      </button>
-      {feedback && <span role={feedback.kind === 'error' ? 'alert' : 'status'}>{feedback.message}</span>}
-    </form>
-  );
-}
-
-function renderResultCell({
-  tournamentId,
-  pairing,
-  player1Name,
-  player2Name,
-  entered,
-  queuedStatus,
-  onSubmitted,
-}: {
-  tournamentId: string;
-  pairing: Pairing;
-  player1Name: string;
-  player2Name: string;
-  entered: boolean;
-  queuedStatus: QueuedStatusEntry | undefined;
-  onSubmitted: () => void;
-}) {
-  if (entered) return 'Recorded';
-
-  if (queuedStatus) {
-    switch (queuedStatus.status) {
-      case 'pending':
-        return 'Queued — will sync';
-      case 'syncing':
-        return 'Syncing…';
-      case 'auth-required':
-        return 'Queued — sign in to sync';
-      case 'conflict':
-        // Someone else already recorded this result server-side while the
-        // judge was offline — re-entering would just 409 again, so no form.
-        return <p role="alert">{queuedStatus.failureReason ?? 'Already recorded by someone else.'}</p>;
-      case 'failed':
-        // Any other rejection (e.g. a validation error) is not terminal:
-        // showing the form below the reason lets the judge correct and
-        // re-enter it.
-        return (
-          <>
-            <p role="alert">{queuedStatus.failureReason ?? 'Sync failed.'}</p>
-            <ResultForm
-              tournamentId={tournamentId}
-              pairing={pairing}
-              player1Name={player1Name}
-              player2Name={player2Name}
-              onSubmitted={onSubmitted}
-            />
-          </>
-        );
-    }
-  }
-
-  return (
-    <ResultForm
-      tournamentId={tournamentId}
-      pairing={pairing}
-      player1Name={player1Name}
-      player2Name={player2Name}
-      onSubmitted={onSubmitted}
-    />
-  );
-}
-
 export function RoundPage() {
   const { tournamentId, roundNumber } = useParams<{ tournamentId: string; roundNumber: string }>();
   const roundNum = Number(roundNumber);
   const isOnline = useOnlineStatus();
+  const navigate = useNavigate();
+  // Set by a successful "Close round" on the previous round's page, so this
+  // page can say so — and, for a Swiss round, point back to publish its
+  // standings (elimination rounds never get standings).
+  const navState = useLocation().state as { closedRound?: number; closedPhase?: string } | null;
+  const closedRound = navState?.closedRound;
+  const closedPhase = navState?.closedPhase;
+  const [reloadKey, setReloadKey] = useState(0);
+  // Closing the last round has no next page to go to: this page reloads in
+  // place and shows the completion note for the round that was closed.
+  const [completedNote, setCompletedNote] = useState<{ round: number; phase: string } | null>(null);
+  const noteRef = useRef<HTMLParagraphElement>(null);
+  // Bumped by every full load (round change, reload) and every results
+  // check; a check's response only applies if nothing newer started since.
+  // Bumped in effects/handlers, never during render, so a render React
+  // discards (concurrent navigation) can't move it.
+  const generation = useRef(0);
+  const loadingRef = useRef(true);
 
   const [playersById, setPlayersById] = useState<Map<string, string>>(new Map());
   const [pairingsData, setPairingsData] = useState<PairingsResponse | null>(null);
@@ -297,6 +138,7 @@ export function RoundPage() {
   useEffect(() => {
     if (!tournamentId || !roundNum) return;
     let cancelled = false;
+    generation.current++;
     setLoading(true);
     setLoadError(null);
 
@@ -343,12 +185,90 @@ export function RoundPage() {
     return () => {
       cancelled = true;
     };
-  }, [tournamentId, roundNum]);
+  }, [tournamentId, roundNum, reloadKey]);
 
   const nameFor = useMemo(
     () => (playerId: string | undefined) => (playerId ? playersById.get(playerId) ?? playerId : ''),
     [playersById],
   );
+
+  // Results a queued submission found already recorded by someone else
+  // ('conflict') are on the server — they don't block closing the round.
+  const missingResults = pairingsData
+    ? pairingsData.pairings.filter(
+        (p) => !p.is_bye && !enteredPairingIds.has(p.id) && queuedStatus.get(p.id)?.status !== 'conflict',
+      ).length
+    : 0;
+
+  // Judges enter results on their own devices and nothing pushes them here,
+  // so re-read which pairings have results (pairings only — no full reload).
+  // Also picks up the round having been closed from another tab.
+  async function checkForResults() {
+    // A full load is already fetching fresh data (e.g. the reload a check
+    // just triggered) — another check now would only trigger a second one.
+    if (!tournamentId || loadingRef.current) return;
+    const gen = ++generation.current;
+    try {
+      const fresh = await getPairings(tournamentId, roundNum);
+      if (generation.current !== gen) return;
+      // Closed elsewhere (another tab or device): reload fully, so its new
+      // standings and the Publish control appear — not just the status.
+      if (fresh.round.status !== 'active') {
+        setReloadKey((k) => k + 1);
+        return;
+      }
+      setPairingsData(fresh);
+      setEnteredPairingIds(
+        (prev) => new Set([...prev, ...fresh.pairings.filter((p) => p.has_result).map((p) => p.id)]),
+      );
+    } catch {
+      // Best-effort background refresh — the next tick or a reload retries.
+    }
+  }
+
+  const pollForResults =
+    !!pairingsData?.viewer_is_organizer && pairingsData.round.status === 'active' && missingResults > 0 && isOnline;
+  useEffect(() => {
+    if (!pollForResults) return;
+    const id = window.setInterval(() => {
+      if (document.visibilityState === 'visible') void checkForResults();
+    }, 15_000);
+    // A tab coming back to the foreground checks right away rather than
+    // waiting out the rest of the interval.
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void checkForResults();
+    };
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+    // checkForResults only closes over tournamentId/roundNum (deps here) plus
+    // refs and state setters, so it needn't be re-created on every render.
+  }, [pollForResults, tournamentId, roundNum]);
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
+
+  // Land focus on the "Round N closed" / "Tournament complete" note: the
+  // Close button that had focus is gone, and a status line that mounts
+  // already filled in is often not announced on its own.
+  useEffect(() => {
+    if (!loading) noteRef.current?.focus();
+  }, [loading, closedRound, completedNote]);
+
+  function handleAdvanced(result: AdvanceRoundResponse) {
+    const phase = pairingsData?.round.phase ?? 'swiss';
+    if (result.completed) {
+      setCompletedNote({ round: roundNum, phase });
+      setReloadKey((k) => k + 1);
+      return;
+    }
+    navigate(`/t/${tournamentId}/r/${result.round.round_number}`, {
+      state: { closedRound: roundNum, closedPhase: phase },
+    });
+  }
 
   if (!tournamentId || !roundNum) {
     return (
@@ -399,6 +319,39 @@ export function RoundPage() {
         />
         {!isOnline && <p role="status">Offline — results will be queued and sent once you're back online.</p>}
         {cacheBanner && <p role="status">{cacheBanner}</p>}
+        {completedNote?.round === roundNum ? (
+          <p ref={noteRef} role="status" tabIndex={-1}>
+            Tournament complete.{' '}
+            {completedNote.phase === 'elimination'
+              ? 'The final has been decided. Swiss standings are on each Swiss round’s page.'
+              : 'Review and publish the final standings below.'}
+          </p>
+        ) : (
+          closedRound != null &&
+          closedRound !== roundNum && (
+            <p ref={noteRef} role="status" tabIndex={-1}>
+              Round {closedRound} closed.{' '}
+              {closedPhase === 'elimination' ? (
+                'Its winners have advanced to this round.'
+              ) : (
+                <>
+                  <Link to={`/t/${tournamentId}/r/${closedRound}`}>Review and publish its standings</Link>.
+                </>
+              )}
+            </p>
+          )
+        )}
+        {pairingsData.viewer_is_organizer && pairingsData.round.status === 'active' && (
+          <AdvanceRound
+            tournamentId={tournamentId}
+            roundNumber={pairingsData.round.round_number}
+            phase={pairingsData.round.phase}
+            missingResults={missingResults}
+            isOnline={isOnline}
+            onCheckResults={checkForResults}
+            onAdvanced={handleAdvanced}
+          />
+        )}
 
         <section>
           <h2>Pairings</h2>
@@ -441,7 +394,13 @@ export function RoundPage() {
 
         <section>
           <h2>Standings</h2>
-          {standings.length === 0 && <p>Standings not yet available for this round.</p>}
+          {standings.length === 0 && (
+            <p>
+              {pairingsData.round.phase === 'elimination'
+                ? 'Elimination rounds have no standings — the bracket decides who advances.'
+                : 'Standings not yet available for this round.'}
+            </p>
+          )}
           {standings.length > 0 && !standingsFromCache && (
             <PublishStandings
               tournamentId={tournamentId}
