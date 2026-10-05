@@ -323,9 +323,14 @@ async function lockTournamentAndRound(
   };
 }
 
+// expectedRound: the round the caller believes it is closing. /advance
+// always acts on whatever round is active *now*, so without this a stale
+// page still showing "Close round 1" would close round 2 the moment round
+// 2's results were complete. Optional so existing API callers keep working.
 export async function advanceRound(
   tournamentId: string,
   organizerId: string,
+  expectedRound?: number,
 ): Promise<AdvanceRoundResult> {
   const client = await pool.connect();
   let originalError: unknown;
@@ -333,6 +338,9 @@ export async function advanceRound(
     await client.query('BEGIN');
     const { currentRound, totalRounds, format, activeRoundId, topCut, activeRoundPhase } =
       await lockTournamentAndRound(client, tournamentId, organizerId);
+    if (expectedRound !== undefined && expectedRound !== currentRound) {
+      throw new AppError('ROUND_NOT_ACTIVE', `Round ${expectedRound} is not the active round (Round ${currentRound} is)`);
+    }
 
     const { rows: missing } = await client.query<{ count: string }>(
       `SELECT COUNT(*) AS count FROM pairings p
@@ -371,6 +379,9 @@ export async function forceAdvanceRound(
   tournamentId: string,
   organizerId: string,
   responsiblePlayerIds: string[],
+  // Same stale-page guard as advanceRound — matters more here, since this
+  // writes losses into every unfinished match of whichever round it closes.
+  expectedRound?: number,
 ): Promise<AdvanceRoundResult & { forced_results: number; forced_breakdown: ForcedResultBreakdown }> {
   const client = await pool.connect();
   let originalError: unknown;
@@ -379,6 +390,12 @@ export async function forceAdvanceRound(
     const { currentRound, totalRounds, format, activeRoundId, topCut, activeRoundPhase } =
       await lockTournamentAndRound(client, tournamentId, organizerId);
 
+    // Stale-page check first: a tab still on a Swiss round after the event
+    // moved into the bracket should hear "not the active round", not
+    // "unsupported in elimination".
+    if (expectedRound !== undefined && expectedRound !== currentRound) {
+      throw new AppError('ROUND_NOT_ACTIVE', `Round ${expectedRound} is not the active round (Round ${currentRound} is)`);
+    }
     if (activeRoundPhase === 'elimination') {
       throw new AppError('UNSUPPORTED_IN_ELIMINATION', 'Force-advance is not supported during elimination rounds');
     }

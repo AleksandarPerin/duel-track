@@ -519,3 +519,28 @@ tbody tr:last-child td {
   font-size: 0.85rem;
   color: var(--color-text-muted);
 }
+
+/* ── close round (organizer) ───────────────────────────────────────────── */
+
+.advance-round {
+  margin: var(--space-3) 0;
+}
+
+.advance-round__actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Same reasoning as .assignment-card__actions: inline next to text/buttons,
+   not a standalone full-width form submit. */
+.advance-round__actions .button--primary {
+  width: auto;
+}
+
+/* Empty but still rendered: display:none would drop the live region from
+   the accessibility tree, and its first text might then go unannounced. */
+.advance-round__status:empty {
+  margin: 0;
+}

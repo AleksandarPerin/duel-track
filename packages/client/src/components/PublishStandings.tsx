@@ -40,16 +40,21 @@ export function PublishStandings({
   const publishButtonRef = useRef<HTMLButtonElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const statusRef = useRef<HTMLParagraphElement>(null);
-  const isFirstRender = useRef(true);
+  const focusAfterToggle = useRef(false);
   const justPublished = useRef(false);
 
-  // Same focus handling as the dashboard's Start Tournament confirm: toggling
-  // `confirming` swaps buttons and the DOM drops focus to <body> otherwise.
+  // Toggling `confirming` swaps buttons, and the DOM drops focus to <body>
+  // when the focused one unmounts — so move it explicitly, but only after a
+  // toggle the user made (a "skip the first render" guard is defeated by
+  // StrictMode's dev double-mount, and then steals focus on page load).
+  function toggleConfirm(next: boolean) {
+    focusAfterToggle.current = true;
+    setConfirming(next);
+  }
+
   useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
+    if (!focusAfterToggle.current) return;
+    focusAfterToggle.current = false;
     (confirming ? confirmButtonRef : publishButtonRef).current?.focus();
   }, [confirming]);
 
@@ -72,7 +77,7 @@ export function PublishStandings({
       onPublished(roundNumber);
     } catch (err) {
       setError(err instanceof ApiError ? publishErrorMessage(err.code) : 'Failed to publish standings. Please try again.');
-      setConfirming(false);
+      toggleConfirm(false);
     } finally {
       setPublishing(false);
     }
@@ -108,7 +113,7 @@ export function PublishStandings({
                 >
                   {publishing ? 'Publishing…' : 'Confirm'}
                 </button>
-                <button type="button" disabled={publishing} onClick={() => setConfirming(false)}>
+                <button type="button" disabled={publishing} onClick={() => toggleConfirm(false)}>
                   Cancel
                 </button>
               </>
@@ -120,7 +125,7 @@ export function PublishStandings({
                 disabled={!isOnline}
                 onClick={() => {
                   setError(null);
-                  setConfirming(true);
+                  toggleConfirm(true);
                 }}
               >
                 Publish standings
