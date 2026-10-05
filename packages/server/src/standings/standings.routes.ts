@@ -112,8 +112,10 @@ const standingsRoutes: FastifyPluginAsync = async (fastify) => {
             throw new AppError('FORBIDDEN', 'Only the organizer can publish standings');
           }
 
-          // publishRoundStandings throws STANDINGS_NOT_FOUND if no rows exist
-          await publishRoundStandings(id, rn);
+          // publishRoundStandings throws STANDINGS_NOT_FOUND if no rows exist,
+          // and returns false if the round was already published.
+          const changed = await publishRoundStandings(id, rn);
+          if (!changed) return reply.code(200).send({ published: true });
 
           await safeAudit(request.log, {
             tournamentId: id,

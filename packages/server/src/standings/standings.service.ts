@@ -138,16 +138,26 @@ export async function getRoundStandings(
   return rows;
 }
 
+// Idempotent: returns false (no error) when the round was already published,
+// so a retry after a lost response, or a second organizer tab, ends in the
+// published state without the caller re-auditing or re-broadcasting it.
 export async function publishRoundStandings(
   tournamentId: string,
   roundNumber: number,
-): Promise<void> {
+): Promise<boolean> {
   const result = await pool.query(
     `UPDATE standings SET is_published = TRUE
-     WHERE tournament_id = $1 AND round_number = $2`,
+     WHERE tournament_id = $1 AND round_number = $2 AND is_published = FALSE`,
     [tournamentId, roundNumber],
   );
-  if ((result.rowCount ?? 0) === 0) {
+  if ((result.rowCount ?? 0) > 0) return true;
+
+  const { rowCount } = await pool.query(
+    'SELECT 1 FROM standings WHERE tournament_id = $1 AND round_number = $2 LIMIT 1',
+    [tournamentId, roundNumber],
+  );
+  if ((rowCount ?? 0) === 0) {
     throw new AppError('STANDINGS_NOT_FOUND', 'No standings found for this round');
   }
+  return false;
 }

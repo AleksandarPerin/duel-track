@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router-dom';
 import type { TournamentExport, TournamentExportRound } from '@dueltrack/shared';
 import { getTournamentExport } from '../api/publicTournament';
 import { ApiError } from '../api/client';
@@ -32,8 +32,19 @@ function latestRound(rounds: TournamentExportRound[]): TournamentExportRound | u
   return rounds.find((r) => r.status === 'active') ?? rounds[rounds.length - 1];
 }
 
+// ?round=N (e.g. RoundPage's link right after publishing round N) picks the
+// initial round; without it, or if N isn't in the export, falls back to the
+// active/latest round — which, after closing round N, is already N+1.
+function initialRound(rounds: TournamentExportRound[], requested: number | null): number | null {
+  if (requested != null && rounds.some((r) => r.round_number === requested)) return requested;
+  return latestRound(rounds)?.round_number ?? null;
+}
+
 export function PublicTournamentPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
+  const [searchParams] = useSearchParams();
+  const roundParam = searchParams.get('round');
+  const requestedRound = roundParam && /^\d+$/.test(roundParam) ? Number(roundParam) : null;
   const [data, setData] = useState<TournamentExport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedRound, setSelectedRound] = useState<number | null>(null);
@@ -41,17 +52,18 @@ export function PublicTournamentPage() {
   useEffect(() => {
     if (!tournamentId) return;
     let cancelled = false;
-    // Reset rather than carry over a previous tournament's selected round —
-    // the effect only depends on tournamentId, so without this a direct
-    // navigation between two public tournament pages (skipping a remount)
-    // would keep showing the old tournament's round number.
+    // Reset rather than carry over the previous load's state — a direct
+    // navigation to another tournament or another ?round (skipping a
+    // remount) would otherwise keep the old round number, or keep showing
+    // an earlier failure's error card over a now-successful refetch.
     setData(null);
+    setError(null);
     setSelectedRound(null);
-    getTournamentExport(tournamentId)
+    getTournamentExport(tournamentId, { revalidate: requestedRound != null })
       .then((result) => {
         if (cancelled) return;
         setData(result);
-        setSelectedRound(latestRound(result.rounds)?.round_number ?? null);
+        setSelectedRound(initialRound(result.rounds, requestedRound));
       })
       .catch((err) => {
         if (cancelled) return;
@@ -64,7 +76,7 @@ export function PublicTournamentPage() {
     return () => {
       cancelled = true;
     };
-  }, [tournamentId]);
+  }, [tournamentId, requestedRound]);
 
   const round = useMemo(
     () => data?.rounds.find((r) => r.round_number === selectedRound),
