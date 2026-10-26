@@ -14,6 +14,8 @@ export class ApiError extends Error {
 // error, which every caller already treats as a network failure: forms show
 // a retry message, result entry and the sync queue queue/retry it.
 export const REQUEST_TIMEOUT_MS = 20_000;
+// Fetching a CSRF token gets less: it's a tiny GET that blocks the real request.
+export const CSRF_PRIME_TIMEOUT_MS = 10_000;
 
 export async function fetchWithTimeout(
   input: string,
@@ -65,7 +67,7 @@ let primingPromise: Promise<void> | null = null;
 
 async function doPrime(): Promise<void> {
   try {
-    const res = await fetchWithTimeout('/api/auth/csrf', { credentials: 'include' }, 10_000);
+    const res = await fetchWithTimeout('/api/auth/csrf', { credentials: 'include' }, CSRF_PRIME_TIMEOUT_MS);
     const data = await res.json();
     csrfToken = data.csrfToken;
   } finally {

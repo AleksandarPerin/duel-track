@@ -13,7 +13,8 @@ import {
   STALE_SYNCING_MS,
 } from './syncQueue';
 import { setSessionUserId } from '../api/sessionUser';
-import { resetCsrfToken } from '../api/client';
+import { CSRF_PRIME_TIMEOUT_MS, REQUEST_TIMEOUT_MS, resetCsrfToken } from '../api/client';
+import { RESULT_ALREADY_RECORDED_MESSAGE } from '../api/resultErrors';
 
 // Real flush logic against an in-memory IndexedDB (fake-indexeddb) with a
 // scripted fetch — the parts of the queue that unit tests on pure helpers
@@ -22,9 +23,15 @@ import { resetCsrfToken } from '../api/client';
 const T = 'tournament-1';
 const BODY: ResultInput = { outcome: 'player1_win', player1_game_wins: 2, player2_game_wins: 0, games_drawn: 0 };
 
-type Reply = { status: number; error?: string } | (() => Promise<{ status: number; error?: string }>);
+// 'throw' = the request itself fails (offline, connection reset).
+type Reply = { status: number; error?: string } | 'throw' | (() => Promise<{ status: number; error?: string }>);
 let replies: Map<string, Reply>;
 let posted: string[];
+// Every result POST as sent, for checking what actually goes over the wire.
+let requests: { pairingId: string; init: RequestInit }[];
+let csrfFetches: number;
+// Runs while the CSRF token is being fetched (before the POST it precedes).
+let onCsrfFetch: (() => void) | null;
 let assign: ReturnType<typeof vi.fn>;
 let location: { pathname: string; search: string; assign: typeof assign };
 
@@ -48,6 +55,9 @@ async function get(id: string): Promise<QueuedResult | undefined> {
 beforeEach(async () => {
   replies = new Map();
   posted = [];
+  requests = [];
+  csrfFetches = 0;
+  onCsrfFetch = null;
   assign = vi.fn();
   location = { pathname: `/t/${T}/r/1`, search: '', assign };
   const storage = new Map<string, string>();
@@ -59,11 +69,17 @@ beforeEach(async () => {
   vi.stubGlobal('window', Object.assign(new EventTarget(), { location, setTimeout }));
   vi.stubGlobal(
     'fetch',
-    vi.fn(async (url: string) => {
-      if (url === '/api/auth/csrf') return json(200, { csrfToken: 'csrf' });
+    vi.fn(async (url: string, init: RequestInit = {}) => {
+      if (url === '/api/auth/csrf') {
+        csrfFetches++;
+        onCsrfFetch?.();
+        return json(200, { csrfToken: `csrf-${csrfFetches}` });
+      }
       const pairingId = pairingOf(url);
       posted.push(pairingId);
+      requests.push({ pairingId, init });
       const reply = replies.get(pairingId) ?? { status: 201 };
+      if (reply === 'throw') throw new TypeError('Failed to fetch');
       const { status, error } = typeof reply === 'function' ? await reply() : reply;
       return json(status, error ? { error } : {});
     }),
@@ -297,5 +313,148 @@ describe('flushQueue — retry limits and resume timing', () => {
     await Promise.all([running, resumed]);
     expect(posted).toEqual(['p1', 'p2']);
     expect(await get('parked')).toBeUndefined();
+  });
+});
+
+describe('what a flush actually sends (M-1)', () => {
+  it('POSTs the queued body with the CSRF token and credentials', async () => {
+    const body: ResultInput = { outcome: 'player2_win', player1_game_wins: 1, player2_game_wins: 2, games_drawn: 0 };
+    await put({ id: 'r1', pairingId: 'p1', userId: 'judge-a', body });
+    await flushQueue();
+    expect(requests).toHaveLength(1);
+    const { init } = requests[0];
+    expect(init.method).toBe('POST');
+    expect(init.credentials).toBe('include');
+    expect(JSON.parse(String(init.body))).toEqual(body);
+    expect((init.headers as Record<string, string>)['x-csrf-token']).toBe('csrf-1');
+  });
+
+  it('fetches a fresh CSRF token after one is rejected', async () => {
+    await put({ id: 'r1', pairingId: 'p1', userId: 'judge-a' });
+    replies.set('p1', { status: 403, error: 'FST_CSRF_INVALID_TOKEN' });
+    await flushQueue();
+    replies.delete('p1');
+    await flushQueue();
+    expect(csrfFetches).toBe(2);
+    expect((requests[1].init.headers as Record<string, string>)['x-csrf-token']).toBe('csrf-2');
+    expect(await get('r1')).toBeUndefined();
+  });
+});
+
+describe('offline and rejected results (M-2)', () => {
+  it('stops the pass on a failed request and keeps everything queued', async () => {
+    await put({ id: 'r1', pairingId: 'p1', userId: 'judge-a', createdAt: 1 });
+    await put({ id: 'r2', pairingId: 'p2', userId: 'judge-a', createdAt: 2 });
+    await put({ id: 'r3', pairingId: 'p3', userId: 'judge-a', createdAt: 3 });
+    replies.set('p1', 'throw');
+    await flushQueue();
+    expect(posted).toEqual(['p1']);
+    for (const id of ['r1', 'r2', 'r3']) expect((await get(id))?.status).toBe('pending');
+    expect(assign).not.toHaveBeenCalled();
+  });
+
+  it('marks a result the server already has as a conflict, with the neutral wording', async () => {
+    await put({ id: 'r1', pairingId: 'p1', userId: 'judge-a' });
+    replies.set('p1', { status: 409, error: 'RESULT_ALREADY_ENTERED' });
+    await flushQueue();
+    const record = await get('r1');
+    expect(record?.status).toBe('conflict');
+    expect(record?.failureReason).toBe(RESULT_ALREADY_RECORDED_MESSAGE);
+  });
+
+  it('keeps going after a rejected result — it says nothing about the rest', async () => {
+    await put({ id: 'r1', pairingId: 'p1', userId: 'judge-a', createdAt: 1 });
+    await put({ id: 'r2', pairingId: 'p2', userId: 'judge-a', createdAt: 2 });
+    replies.set('p1', { status: 422, error: 'BYE_RESULT' });
+    await flushQueue();
+    expect((await get('r1'))?.status).toBe('failed');
+    expect(await get('r2')).toBeUndefined();
+  });
+});
+
+describe('queue rules pinned (M-3)', () => {
+  it('reclaims a dead tab only after the longest a live send can take', () => {
+    // A live attempt: CSRF prime + POST, each bounded by its timeout. Any
+    // shorter window would reclaim a send still in flight — the double-send
+    // the window exists to prevent.
+    expect(STALE_SYNCING_MS).toBeGreaterThan(CSRF_PRIME_TIMEOUT_MS + REQUEST_TIMEOUT_MS);
+  });
+
+  it('gives up on a CSRF-rejected result after exactly 3 rejections in a row', () => {
+    expect(CSRF_FAILURE_LIMIT).toBe(3);
+  });
+
+  describe('stale boundary', () => {
+    afterEach(() => vi.restoreAllMocks());
+    const NOW = 10_000_000;
+
+    it('leaves a claim exactly STALE_SYNCING_MS old alone', async () => {
+      await put({ id: 'r1', pairingId: 'p1', userId: 'judge-a', status: 'syncing', syncingSince: NOW - STALE_SYNCING_MS });
+      vi.spyOn(Date, 'now').mockReturnValue(NOW);
+      await flushQueue();
+      expect(posted).toEqual([]);
+    });
+
+    it('reclaims one a millisecond older', async () => {
+      await put({ id: 'r1', pairingId: 'p1', userId: 'judge-a', status: 'syncing', syncingSince: NOW - STALE_SYNCING_MS - 1 });
+      vi.spyOn(Date, 'now').mockReturnValue(NOW);
+      await flushQueue();
+      expect(posted).toEqual(['p1']);
+    });
+  });
+
+  it('counts only consecutive CSRF rejections — another failure resets the count', async () => {
+    await put({ id: 'r1', pairingId: 'p1', userId: 'judge-a' });
+    replies.set('p1', { status: 403, error: 'FST_CSRF_INVALID_TOKEN' });
+    for (let i = 1; i < CSRF_FAILURE_LIMIT; i++) await flushQueue();
+    replies.set('p1', 'throw');
+    await flushQueue();
+    replies.set('p1', { status: 403, error: 'FST_CSRF_INVALID_TOKEN' });
+    for (let i = 1; i < CSRF_FAILURE_LIMIT; i++) await flushQueue();
+    expect((await get('r1'))?.status).toBe('pending');
+  });
+
+  it('does not send a result if the session changes while the CSRF token is fetched', async () => {
+    await put({ id: 'r1', pairingId: 'p1', userId: 'judge-a' });
+    onCsrfFetch = () => setSessionUserId('judge-b');
+    await flushQueue();
+    expect(posted).toEqual([]);
+    expect((await get('r1'))?.status).toBe('pending');
+  });
+
+  it("writes no outcome over a claim another tab has since taken over", async () => {
+    await put({ id: 'r1', pairingId: 'p1', userId: 'judge-a' });
+    replies.set('p1', async () => {
+      // Another tab reclaimed it (its own syncingSince) while this POST hung.
+      const db = await openDb();
+      const r1 = (await db.get('queuedResults', 'r1'))!;
+      await db.put('queuedResults', { ...r1, status: 'syncing', syncingSince: 42 });
+      return { status: 409, error: 'RESULT_ALREADY_ENTERED' };
+    });
+    await flushQueue();
+    expect(await get('r1')).toMatchObject({ status: 'syncing', syncingSince: 42 });
+  });
+
+  it('re-entering a result replaces the queued one for that pairing', async () => {
+    await enqueueResult(T, 'p1', BODY);
+    const corrected: ResultInput = { outcome: 'draw', player1_game_wins: 1, player2_game_wins: 1, games_drawn: 1 };
+    await enqueueResult(T, 'p1', corrected);
+    const all = await (await openDb()).getAll('queuedResults');
+    expect(all).toHaveLength(1);
+    expect(all[0].body).toEqual(corrected);
+  });
+});
+
+describe('records from before ownership existed (no userId)', () => {
+  it('are still sent, under whoever is signed in', async () => {
+    await put({ id: 'legacy', pairingId: 'p1' });
+    await flushQueue();
+    expect(posted).toEqual(['p1']);
+  });
+
+  it("aren't counted as the signing-out judge's own", async () => {
+    await put({ id: 'legacy', pairingId: 'p1' });
+    await put({ id: 'gone', pairingId: 'p2', userId: 'judge-a', status: 'conflict' });
+    expect(await countUnsentForUser('judge-a')).toBe(0);
   });
 });

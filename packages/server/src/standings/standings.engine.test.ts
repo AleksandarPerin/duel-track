@@ -176,11 +176,15 @@ describe('computeStandings', () => {
     expect(a.match_draws).toBe(1);
     expect(a.game_wins).toBe(1);
     expect(a.game_losses).toBe(1);
-    // GW% = max(0.33, 1/3) ≈ 0.3333
-    expect(a.gw_percent).toBe(0.3333);
     expect(b.match_points).toBe(1);
     expect(b.game_wins).toBe(1);
   });
+
+  // The GW% of a drawn game was pinned here at the PRD's 0.3333 (a drawn
+  // game counted as 0). MTR Appendix E counts it as 1 game point —
+  // (3·1 + 1) / (3·3) = 0.4444 — and draws likewise as 1/3 in opponents'
+  // MWP. Not pinned either way until the MTR reading is confirmed (C-1).
+  it.todo('GW% and opponents\' MWP of a drawn match follow MTR Appendix E (C-1)');
 
   it('scores an intentional draw with 0 games recorded', () => {
     const records = [id(1, 'A', 'B')];
@@ -334,5 +338,61 @@ describe('computeStandings', () => {
     const records = [win(1, 'A', 'B', '2-0')];
     const entries = computeStandings(['A', 'B'], records, 1);
     expect(byId(entries, 'A').gw_percent).toBe(1.0);
+  });
+});
+
+describe('computeStandings — OGW% of a player with a single opponent', () => {
+  // B played only round 1 (lost 1-2 to A), then left. MTR Appendix E: OGW%
+  // is the mean of the opponents' GW% — for B, just A's: A won 4 of 5 games.
+  it("is that one opponent's GW%", () => {
+    const records = [win(1, 'A', 'B', '2-1'), win(2, 'A', 'C')];
+    const b = computeStandings(['A', 'B', 'C'], records, 2).find((s) => s.player_id === 'B')!;
+    expect(b.ogw_percent).toBe(0.8);
+  });
+});
+
+// ── Tiebreaker order (MTR Appendix E) ────────────────────────────────────────
+// Order: match points, then OMW%, then GW%, then OGW%, all descending.
+// Expected values were computed independently from the MTR Appendix E
+// formulas (match points / 3·rounds, game points / 3·games, 0.33 floor per
+// opponent), not by this engine. The fixture has no draws and no byes —
+// the cases where this engine's PRD-based draw/bye handling is still
+// unconfirmed against the MTR — so here the two must agree.
+describe('computeStandings — tiebreaker order', () => {
+  // [player1, player2, player1 game wins, player2 game wins, round]
+  const event: [string, string, number, number, number][] = [
+    ['g', 'c', 2, 1, 1], ['b', 'h', 0, 2, 1], ['f', 'a', 2, 1, 1], ['d', 'e', 0, 2, 1],
+    ['d', 'a', 2, 1, 2], ['b', 'g', 2, 0, 2], ['h', 'f', 2, 0, 2], ['c', 'e', 2, 0, 2],
+    ['a', 'b', 0, 2, 3], ['c', 'd', 2, 1, 3], ['g', 'f', 2, 1, 3], ['h', 'e', 1, 2, 3],
+  ];
+  const records = event.map(([x, y, gx, gy, r]) =>
+    gx > gy ? win(r, x, y, gy === 1 ? '2-1' : '2-0') : loss(r, x, y, gx === 1 ? '1-2' : '0-2'),
+  );
+  const standings = computeStandings('abcdefgh'.split(''), records, 3);
+  const row = (p: string) => standings.find((s) => s.player_id === p)!;
+
+  it('ranks the whole field in tiebreaker order', () => {
+    expect(standings.map((s) => s.player_id)).toEqual(['h', 'c', 'e', 'g', 'b', 'f', 'd', 'a']);
+  });
+
+  it('puts OMW% before GW%: b has the better GW% but the lower OMW%', () => {
+    // c: OMW 0.5556, GW 0.625 — b: OMW 0.5544, GW 0.6667 (both 6 points)
+    expect(row('c')).toMatchObject({ match_points: 6, omw_percent: 0.5556, gw_percent: 0.625 });
+    expect(row('b')).toMatchObject({ match_points: 6, omw_percent: 0.5544, gw_percent: 0.6667 });
+    expect(row('c').rank).toBeLessThan(row('b').rank);
+  });
+
+  it('breaks an OMW% tie by GW%, highest first', () => {
+    // h, c, e, g: all OMW 0.5556 on 6 points
+    expect(['h', 'c', 'e', 'g'].map((p) => row(p).gw_percent)).toEqual([0.7143, 0.625, 0.5714, 0.5]);
+    expect(['h', 'c', 'e', 'g'].map((p) => row(p).rank)).toEqual([1, 2, 3, 4]);
+  });
+
+  it('breaks an OMW% and GW% tie by OGW%, highest first', () => {
+    // f and d: 3 points, OMW 0.5544, GW 0.375 — OGW 0.5148 vs 0.5088
+    expect(row('f')).toMatchObject({ match_points: 3, omw_percent: 0.5544, gw_percent: 0.375, ogw_percent: 0.5148 });
+    expect(row('d')).toMatchObject({ match_points: 3, omw_percent: 0.5544, gw_percent: 0.375, ogw_percent: 0.5088 });
+    expect(row('f').rank).toBe(6);
+    expect(row('d').rank).toBe(7);
   });
 });

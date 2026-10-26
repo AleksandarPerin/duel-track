@@ -1,4 +1,5 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
+import PDFDocument from 'pdfkit';
 import { buildPairingsPdf } from './pairings-pdf';
 import type { PairingRow } from './pairings-pdf';
 
@@ -35,12 +36,15 @@ describe('buildPairingsPdf', () => {
     expect(pdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
   });
 
-  it('handles non-Latin (Cyrillic) player names without throwing', async () => {
-    const pdf = await buildPairingsPdf(
+  it('embeds the Unicode font, so non-Latin (Cyrillic) names render instead of blanks', async () => {
+    // pdfkit's standard fonts don't throw on Cyrillic — they render blank
+    // glyphs — so not throwing proves nothing. The embedded font's name in
+    // the (uncompressed) font dictionary does.
+    const cyrillic = await buildPairingsPdf(
       { round_number: 1 },
       [pairing({ player1_name: 'Владимир', player2_name: 'Ольга' })],
     );
-    expect(pdf.subarray(0, 5).toString('ascii')).toBe('%PDF-');
+    expect(cyrillic.toString('latin1')).toMatch(/\/BaseFont \/[A-Z]{6}\+DejaVuSans/);
   });
 
   it('produces a larger document for more pairings', async () => {
@@ -50,5 +54,30 @@ describe('buildPairingsPdf', () => {
       Array.from({ length: 50 }, (_, i) => pairing({ id: `p${i}`, table_number: i + 1 })),
     );
     expect(many.length).toBeGreaterThan(one.length);
+  });
+
+  describe('content', () => {
+    afterEach(() => vi.restoreAllMocks());
+    // The text is stored as font glyph codes in compressed streams, so this
+    // checks what is handed to pdfkit rather than parsing the PDF.
+    async function linesOf(pairings: PairingRow[]): Promise<string> {
+      const text = vi.spyOn(PDFDocument.prototype, 'text');
+      await buildPairingsPdf({ round_number: 4 }, pairings);
+      return text.mock.calls.map((c) => String(c[0])).join('|');
+    }
+
+    it('titles the sheet with the round number', async () => {
+      expect(await linesOf([])).toContain('Round 4 Pairings');
+    });
+
+    it('lists each table with both player names', async () => {
+      const out = await linesOf([pairing({ table_number: 7, player1_name: 'Владимир', player2_name: 'Ольга' })]);
+      expect(out).toContain('Table 7|  Владимир  vs  Ольга');
+    });
+
+    it('labels a bye as BYE', async () => {
+      const out = await linesOf([pairing({ table_number: 3, is_bye: true, player2_id: null, player2_name: null })]);
+      expect(out).toContain('Table 3|  Alice  vs  BYE');
+    });
   });
 });
