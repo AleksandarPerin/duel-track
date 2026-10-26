@@ -10,12 +10,15 @@ import { z } from 'zod';
 export const SubmitRegistrationSchema = z.object({
   guest_name: z
     .string()
+    .trim()
     .min(1)
     .max(100)
-    .trim()
     .transform((s) => s.normalize('NFC'))
     .optional(),
   guest_email: z.string().email().max(255).toLowerCase().optional(),
+  // One per guest form, reused across its retries (see the
+  // registration_idempotency_key migration). Optional for older clients.
+  idempotency_key: z.string().uuid().optional(),
 }).strict();
 
 export const DecideRegistrationSchema = z.object({

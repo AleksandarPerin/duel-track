@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useLocation, useParams, useSearchParams } from 'react-router-dom';
 import type { TournamentExport, TournamentExportRound } from '@dueltrack/shared';
 import { getTournamentExport } from '../api/publicTournament';
 import { ApiError } from '../api/client';
 import { RoundTimer } from '../components/RoundTimer';
+import { formatPercent } from '../format';
 
 function outcomeLabel(outcome: string, player1Name: string, player2Name: string): string {
   switch (outcome) {
@@ -22,12 +23,6 @@ function outcomeLabel(outcome: string, player1Name: string, player2Name: string)
   }
 }
 
-// Raw stored fraction (e.g. "0.5500") — the server never scales this to a
-// percent before sending it (see TournamentExportStanding's own comment).
-function formatPercent(v: string | null): string {
-  return v != null ? `${(Number(v) * 100).toFixed(2)}%` : '—';
-}
-
 function latestRound(rounds: TournamentExportRound[]): TournamentExportRound | undefined {
   return rounds.find((r) => r.status === 'active') ?? rounds[rounds.length - 1];
 }
@@ -42,7 +37,12 @@ function initialRound(rounds: TournamentExportRound[], requested: number | null)
 
 export function PublicTournamentPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  // Set by links that know the export just changed (PublishStandings, right
+  // after publishing) — not inferred from ?round, which the round picker now
+  // keeps in the URL, so every reload of a shared link would otherwise skip
+  // the short public cache and hit the origin.
+  const revalidate = (useLocation().state as { revalidate?: boolean } | null)?.revalidate === true;
   const roundParam = searchParams.get('round');
   const requestedRound = roundParam && /^\d+$/.test(roundParam) ? Number(roundParam) : null;
   const [data, setData] = useState<TournamentExport | null>(null);
@@ -53,13 +53,15 @@ export function PublicTournamentPage() {
     if (!tournamentId) return;
     let cancelled = false;
     // Reset rather than carry over the previous load's state — a direct
-    // navigation to another tournament or another ?round (skipping a
-    // remount) would otherwise keep the old round number, or keep showing
-    // an earlier failure's error card over a now-successful refetch.
+    // navigation to another tournament (skipping a remount) would otherwise
+    // keep the old round number, or keep showing an earlier failure's error
+    // card over a now-successful refetch. ?round is read once here, for the
+    // initial selection; later changes are handled by the effect below
+    // without refetching.
     setData(null);
     setError(null);
     setSelectedRound(null);
-    getTournamentExport(tournamentId, { revalidate: requestedRound != null })
+    getTournamentExport(tournamentId, { revalidate })
       .then((result) => {
         if (cancelled) return;
         setData(result);
@@ -76,7 +78,55 @@ export function PublicTournamentPage() {
     return () => {
       cancelled = true;
     };
-  }, [tournamentId, requestedRound]);
+    // requestedRound and revalidate are deliberately read only at fetch
+    // time — refetching on every round pick would be wasteful (see the next
+    // effect).
+  }, [tournamentId]);
+
+  // ?round changed while the page stays mounted (the round picker below,
+  // back/forward, or a link to another round): select it from the data
+  // already loaded.
+  useEffect(() => {
+    // data still from the previous tournament (in-app navigation between two
+    // tournaments runs this before the new fetch clears it) — judging this
+    // URL's ?round against the old rounds would wrongly strip it.
+    if (!data || data.tournament.id.toLowerCase() !== tournamentId?.toLowerCase()) return;
+    if (roundParam == null) {
+      // ?round removed by navigation (back to the bare link): show the
+      // active/latest round, same as a fresh load of that URL.
+      setSelectedRound(latestRound(data.rounds)?.round_number ?? null);
+      return;
+    }
+    if (requestedRound != null && data.rounds.some((r) => r.round_number === requestedRound)) {
+      setSelectedRound(requestedRound);
+      return;
+    }
+    // ?round names no round in this tournament (or isn't a number): the page
+    // already fell back to the latest round, so drop the stale param rather
+    // than leave a URL that claims a round it isn't showing.
+    setSearchParams(
+      (params) => {
+        params.delete('round');
+        return params;
+      },
+      { replace: true },
+    );
+  }, [data, tournamentId, requestedRound, roundParam, setSearchParams]);
+
+  // Mirrors the picked round into the URL, so a reload or a copied link
+  // opens the same round (replace: picking rounds isn't worth history
+  // entries).
+  function selectRound(roundNumber: number) {
+    setSelectedRound(roundNumber);
+    // Functional form keeps any other query params on the URL.
+    setSearchParams(
+      (params) => {
+        params.set('round', String(roundNumber));
+        return params;
+      },
+      { replace: true },
+    );
+  }
 
   const round = useMemo(
     () => data?.rounds.find((r) => r.round_number === selectedRound),
@@ -123,7 +173,7 @@ export function PublicTournamentPage() {
               <select
                 id="roundSelect"
                 value={selectedRound ?? ''}
-                onChange={(e) => setSelectedRound(Number(e.target.value))}
+                onChange={(e) => selectRound(Number(e.target.value))}
               >
                 {data.rounds.map((r) => (
                   <option key={r.round_number} value={r.round_number}>

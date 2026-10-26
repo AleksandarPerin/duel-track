@@ -92,7 +92,10 @@ export function PublishStandings({
         {isPublished ? (
           <>
             Published — visible on the{' '}
-            <Link to={`/t/${tournamentId}?round=${roundNumber}`}>public tournament page</Link>.
+            <Link to={`/t/${tournamentId}?round=${roundNumber}`} state={{ revalidate: true }}>
+              public tournament page
+            </Link>
+            .
           </>
         ) : (
           "Not published yet — players and spectators can't see these standings until you publish them."

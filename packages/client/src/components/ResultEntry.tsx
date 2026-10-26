@@ -1,11 +1,14 @@
 import { FormEvent, useMemo, useState } from 'react';
 import type { Pairing, ResultInput } from '@dueltrack/shared';
 import { submitResult } from '../api/results';
-import { ApiError } from '../api/client';
+import { ApiError, redirectToLogin } from '../api/client';
+import { RESULT_ALREADY_RECORDED_MESSAGE, resultErrorMessage } from '../api/resultErrors';
 import {
   discardQueuedForPairing,
   enqueueResult,
+  flushQueue,
   notifyQueueUpdated,
+  parkPendingForSignIn,
   QueuedStatusEntry,
 } from '../offline/syncQueue';
 
@@ -78,6 +81,16 @@ function ResultForm({
       await submitResult(tournamentId, pairing.id, body);
       await markRecorded();
     } catch (err) {
+      if (err instanceof ApiError && err.status === 401) {
+        // Session expired mid-entry: park the result rather than lose it to
+        // the login redirect; resumeAuthRequired() sends it after sign-in.
+        // The rest of this judge's queue would 401 the same way — park it
+        // too, so the login page isn't reloaded under them by a flush.
+        await enqueueResult(tournamentId, pairing.id, body, 'auth-required');
+        await parkPendingForSignIn();
+        redirectToLogin();
+        return;
+      }
       if (err instanceof ApiError) {
         if (err.code === 'RESULT_ALREADY_ENTERED') {
           // Already recorded — most likely by this same judge in an earlier
@@ -85,14 +98,18 @@ function ResultForm({
           // rather than surfacing a confusing raw error.
           await markRecorded();
         } else {
-          setFeedback({ kind: 'error', message: `${err.code}: ${String((err.details as { message?: string })?.message ?? '')}`.trim() });
+          setFeedback({ kind: 'error', message: resultErrorMessage(err.code, err.status) });
         }
       } else {
         // navigator.onLine said we were online but the request still threw —
         // e.g. connection dropped mid-request. Queue rather than lose the
         // result the judge just entered.
+        // With request timeouts this also covers a stalled-but-"online"
+        // connection, where no 'online' event will ever fire — so kick off
+        // a sync shortly (main.tsx also retries every 30s).
         await enqueueResult(tournamentId, pairing.id, body);
-        setFeedback({ kind: 'ok', message: 'Connection lost — result queued, will sync when back online.' });
+        setFeedback({ kind: 'ok', message: 'Connection problem — result queued, will sync automatically.' });
+        window.setTimeout(() => void flushQueue(), 5_000);
       }
     } finally {
       setSubmitting(false);
@@ -139,6 +156,28 @@ export function renderResultCell({
 }) {
   if (entered) return 'Recorded';
 
+  const form = (
+    <ResultForm
+      tournamentId={tournamentId}
+      pairing={pairing}
+      player1Name={player1Name}
+      player2Name={player2Name}
+      onSubmitted={onSubmitted}
+    />
+  );
+
+  // Entered by someone else on this device: it's only ever sent under their
+  // session, so it waits for them. Offer the form too — re-entering it here
+  // replaces their queued copy (enqueueResult/markRecorded discard it).
+  if (queuedStatus?.otherUser && (queuedStatus.status === 'pending' || queuedStatus.status === 'auth-required')) {
+    return (
+      <>
+        <p role="status">Queued by another account on this device — it syncs when they sign in here.</p>
+        {form}
+      </>
+    );
+  }
+
   if (queuedStatus) {
     switch (queuedStatus.status) {
       case 'pending':
@@ -148,9 +187,11 @@ export function renderResultCell({
       case 'auth-required':
         return 'Queued — sign in to sync';
       case 'conflict':
-        // Someone else already recorded this result server-side while the
-        // judge was offline — re-entering would just 409 again, so no form.
-        return <p role="alert">{queuedStatus.failureReason ?? 'Already recorded by someone else.'}</p>;
+        // A result is already on the server (often this judge's own earlier
+        // submission whose response was lost) — re-entering would just 409
+        // again, so no form. Constant text: older records stored wording
+        // that blamed "someone else".
+        return <p role="status">{RESULT_ALREADY_RECORDED_MESSAGE}</p>;
       case 'failed':
         // Any other rejection (e.g. a validation error) is not terminal:
         // showing the form below the reason lets the judge correct and
@@ -158,25 +199,11 @@ export function renderResultCell({
         return (
           <>
             <p role="alert">{queuedStatus.failureReason ?? 'Sync failed.'}</p>
-            <ResultForm
-              tournamentId={tournamentId}
-              pairing={pairing}
-              player1Name={player1Name}
-              player2Name={player2Name}
-              onSubmitted={onSubmitted}
-            />
+            {form}
           </>
         );
     }
   }
 
-  return (
-    <ResultForm
-      tournamentId={tournamentId}
-      pairing={pairing}
-      player1Name={player1Name}
-      player2Name={player2Name}
-      onSubmitted={onSubmitted}
-    />
-  );
+  return form;
 }

@@ -11,6 +11,16 @@ export interface QueuedResult {
   createdAt: number;
   status: QueuedResultStatus;
   failureReason?: string; // set when status is 'failed' or 'conflict'
+  // Who entered it (see api/sessionUser) — only sent under that user's
+  // session. Absent on records queued before ownership existed, or while
+  // the client didn't know who was signed in: those keep the old behaviour
+  // and go out under whichever session is current.
+  userId?: string;
+  // When a tab claimed it for sending ('syncing'). Lets another tab tell a
+  // live send from one whose tab was killed mid-request.
+  syncingSince?: number;
+  // Consecutive CSRF rejections; see CSRF_FAILURE_LIMIT in syncQueue.
+  csrfFailures?: number;
 }
 
 export interface CachedStandings {

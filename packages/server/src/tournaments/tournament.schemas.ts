@@ -7,18 +7,20 @@ const TOURNAMENT_FORMATS = [
 const REL_LEVELS = ['regular', 'competitive', 'professional'] as const;
 
 export const CreateTournamentSchema = z.object({
-  name: z.string().min(1).max(200).trim(),
+  name: z.string().trim().min(1).max(200),
   format: z.enum(TOURNAMENT_FORMATS),
   rel_level: z.enum(REL_LEVELS).default('regular'),
-  venue: z.string().max(200).trim().optional(),
+  // "" (or whitespace) means "no venue" — stored as NULL, never as "", so the
+  // UI's truthiness checks and updateTournament's change detection agree.
+  venue: z.string().trim().max(200).transform((v) => (v === '' ? undefined : v)).optional(),
   scheduled_at: z.string().datetime({ offset: true }).optional(),
   total_rounds: z.number().int().min(3).max(10),
   top_cut: z.union([z.literal(0), z.literal(2), z.literal(4), z.literal(8)]).default(8),
 }).strict();
 
 export const UpdateTournamentSchema = z.object({
-  name: z.string().min(1).max(200).trim().optional(),
-  venue: z.string().max(200).trim().optional().nullable(),
+  name: z.string().trim().min(1).max(200).optional(),
+  venue: z.string().trim().max(200).transform((v) => (v === '' ? null : v)).optional().nullable(),
   scheduled_at: z.string().datetime({ offset: true }).optional().nullable(),
 }).strict().refine(
   (obj) => Object.keys(obj).length > 0,
@@ -32,7 +34,7 @@ export const AddPlayerSchema = z.discriminatedUnion('type', [
   }),
   z.object({
     type: z.literal('guest'),
-    guest_name: z.string().min(1).max(100).trim().transform((s) => s.normalize('NFC')),
+    guest_name: z.string().trim().min(1).max(100).transform((s) => s.normalize('NFC')),
     guest_email: z.string().email().max(255).toLowerCase().optional(),
   }),
 ]);
