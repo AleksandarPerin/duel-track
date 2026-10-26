@@ -9,7 +9,7 @@ import { AppHeader } from '../components/AppHeader';
 function decisionErrorMessage(code: string): string {
   switch (code) {
     case 'REGISTRATION_ALREADY_DECIDED':
-      return 'Someone already decided this registration.';
+      return 'This registration was already decided — refresh to see its current status.';
     case 'TOURNAMENT_NOT_EDITABLE':
       return "Can't add players — the tournament has already started.";
     case 'PLAYER_ALREADY_REGISTERED':

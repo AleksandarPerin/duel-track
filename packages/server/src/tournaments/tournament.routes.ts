@@ -13,7 +13,6 @@ import {
   createTournament,
   assertTournamentViewer,
   openRegistration,
-  updateTournament,
   listPlayers,
   addUserPlayer,
   addGuestPlayer,
@@ -21,6 +20,7 @@ import {
   reorderSeeds,
   importPlayersFromCsv,
 } from './tournament.service';
+import { updateTournament } from './tournament.update.service';
 import { dropPlayer } from './player.drop.service';
 
 const TOURNAMENT_RATE_LIMIT = {
@@ -127,18 +127,9 @@ const tournamentRoutes: FastifyPluginAsync = async (fastify) => {
 
       const user = request.user!;
       try {
-        const { tournament, changed, changedFields } = await updateTournament(id, user.id, parsed.data);
-
-        if (changed) {
-          await safeAuditLog(request.log, {
-            tournamentId: id,
-            actorId: user.id,
-            action: 'tournament.updated',
-            entityType: 'tournament',
-            entityId: id,
-            detail: changedFields as Record<string, unknown>,
-          });
-        }
+        // updateTournament writes its own audit entry inside its transaction.
+        const { tournament, auditError } = await updateTournament(id, user.id, parsed.data);
+        if (auditError) request.log.error({ err: auditError }, 'Failed to write audit log — mutation was committed');
 
         return reply.send(tournament);
       } catch (err) {

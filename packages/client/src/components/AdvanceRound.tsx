@@ -9,7 +9,7 @@ function advanceErrorMessage(err: ApiError): string {
       // from their device) — the server's view is the one that counts.
       return 'The server still has results missing for this round. Refresh to see the latest, then try again.';
     case 'ROUND_NOT_ACTIVE':
-      return 'This round is no longer the active one — it may have been closed in another tab. Refresh the page.';
+      return 'This round has already been closed — by another tab, or by an earlier attempt whose response was lost. Refresh the page.';
     case 'TOURNAMENT_NOT_IN_PROGRESS':
       return 'This tournament is no longer in progress — it may have been completed in another tab. Refresh the page.';
     case 'TOURNAMENT_NOT_FOUND':

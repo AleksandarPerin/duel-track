@@ -10,9 +10,9 @@ export const RegisterSchema = z.object({
   email: z.string().email().max(255).toLowerCase(),
   display_name: z
     .string()
+    .trim()
     .min(1)
     .max(100)
-    .trim()
     .transform((s) => s.normalize('NFC')),
   password: z
     .string()

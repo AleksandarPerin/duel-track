@@ -1,3 +1,4 @@
+import type { PoolClient } from 'pg';
 import { pool } from '../db/pool';
 import type { AuditAction, AuditLogPage, AuditLogView } from '@dueltrack/shared';
 import { AppError } from '../errors/AppError';
@@ -11,9 +12,11 @@ export async function writeAuditLog(params: {
   entityType?: string;
   entityId?: string;
   detail: Record<string, unknown>;
-}): Promise<void> {
+}, client?: PoolClient): Promise<void> {
   const { tournamentId, actorId, action, entityType, entityId, detail } = params;
-  await pool.query(
+  // client: write inside the caller's transaction (ordering/atomicity with
+  // the change it records); default is a standalone write after commit.
+  await (client ?? pool).query(
     `INSERT INTO audit_log (tournament_id, actor_id, action, entity_type, entity_id, detail)
      VALUES ($1, $2, $3, $4, $5, $6)`,
     [tournamentId, actorId, action, entityType ?? null, entityId ?? null, JSON.stringify(detail)],

@@ -1,3 +1,5 @@
+import { RESULT_ALREADY_RECORDED_MESSAGE, resultErrorMessage } from '../api/resultErrors';
+
 export type SyncOutcome =
   | { kind: 'success' }
   | { kind: 'retry-later' } // network failure or 5xx — keep queued, status stays 'pending'
@@ -18,10 +20,16 @@ export function classifySyncAttempt(outcome: SyncAttemptResult): SyncOutcome {
   if (status >= 200 && status < 300) return { kind: 'success' };
   if (status === 401) return { kind: 'auth-required' };
   if (status === 409 && errorCode === 'RESULT_ALREADY_ENTERED') {
-    return { kind: 'conflict', reason: 'Someone else already entered this result while you were offline.' };
+    return { kind: 'conflict', reason: RESULT_ALREADY_RECORDED_MESSAGE };
+  }
+  // Transient, not a verdict on this result: rate limiting clears within a
+  // minute, and a CSRF rejection clears once the queue re-primes its token
+  // (attemptSubmit resets it) — marking either 'failed' would strand it.
+  if (status === 429 || (status === 403 && errorCode?.startsWith('FST_CSRF'))) {
+    return { kind: 'retry-later' };
   }
   if (status >= 400 && status < 500) {
-    return { kind: 'rejected', reason: errorCode ?? 'Request was rejected' };
+    return { kind: 'rejected', reason: resultErrorMessage(errorCode, status) };
   }
   return { kind: 'retry-later' }; // 5xx — transient, keep retrying
 }

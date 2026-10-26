@@ -45,17 +45,21 @@ function AssignmentRow({ assignment }: { assignment: TournamentAssignmentView })
   const [startError, setStartError] = useState<string | null>(null);
   const startButtonRef = useRef<HTMLButtonElement>(null);
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
-  const isFirstRender = useRef(true);
+  const focusAfterToggle = useRef(false);
 
   // Toggling `confirming` unmounts one button and mounts another — the DOM
   // silently drops focus to <body> when that happens (no auto-carry-over),
-  // stranding a keyboard user. Move focus explicitly, but skip the very
-  // first render so mounting the row doesn't steal focus from the page.
+  // stranding a keyboard user. Move focus explicitly, but only after a
+  // toggle the user made: a "skip the first render" guard is defeated by
+  // StrictMode's dev double-mount and then steals focus on page load.
+  function toggleConfirm(next: boolean) {
+    focusAfterToggle.current = true;
+    setConfirming(next);
+  }
+
   useEffect(() => {
-    if (isFirstRender.current) {
-      isFirstRender.current = false;
-      return;
-    }
+    if (!focusAfterToggle.current) return;
+    focusAfterToggle.current = false;
     (confirming ? confirmButtonRef : startButtonRef).current?.focus();
   }, [confirming]);
 
@@ -110,7 +114,7 @@ function AssignmentRow({ assignment }: { assignment: TournamentAssignmentView })
                   type="button"
                   disabled={starting}
                   onClick={() => {
-                    setConfirming(false);
+                    toggleConfirm(false);
                     setStartError(null);
                   }}
                 >
@@ -123,7 +127,7 @@ function AssignmentRow({ assignment }: { assignment: TournamentAssignmentView })
                   ref={startButtonRef}
                   type="button"
                   className="button button--primary"
-                  onClick={() => setConfirming(true)}
+                  onClick={() => toggleConfirm(true)}
                 >
                   Start Tournament
                 </button>

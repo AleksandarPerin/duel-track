@@ -9,6 +9,7 @@ import { getCachedPlayers, getCachedStandings, setCachedPlayers, setCachedStandi
 import { useOnlineStatus } from '../hooks/useOnlineStatus';
 import { getQueuedStatusForTournament, QUEUE_UPDATED_EVENT, QueuedStatusEntry } from '../offline/syncQueue';
 import { AppHeader } from '../components/AppHeader';
+import { formatPercent } from '../format';
 import { RoundTimer } from '../components/RoundTimer';
 import { PublishStandings } from '../components/PublishStandings';
 import { renderResultCell } from '../components/ResultEntry';
@@ -438,9 +439,9 @@ export function RoundPage() {
                     <td>
                       {s.match_wins}-{s.match_losses}-{s.match_draws}
                     </td>
-                    <td>{s.omw_percent != null ? `${s.omw_percent}%` : '—'}</td>
-                    <td>{s.gw_percent != null ? `${s.gw_percent}%` : '—'}</td>
-                    <td>{s.ogw_percent != null ? `${s.ogw_percent}%` : '—'}</td>
+                    <td>{formatPercent(s.omw_percent)}</td>
+                    <td>{formatPercent(s.gw_percent)}</td>
+                    <td>{formatPercent(s.ogw_percent)}</td>
                   </tr>
                 ))}
               </tbody>

@@ -28,6 +28,7 @@ function handleRegistrationError(err: unknown, reply: FastifyReply) {
     ALREADY_PLAYER: 409,
     ALREADY_REGISTERED: 409,
     GUEST_NAME_REQUIRED: 400,
+    IDEMPOTENCY_KEY_REUSED: 409,
   };
   return reply.code(map[err.code] ?? 500).send({ error: err.code, message: err.message });
 }

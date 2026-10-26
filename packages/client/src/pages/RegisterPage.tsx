@@ -1,4 +1,4 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import type { PublicTournamentInfo } from '@dueltrack/shared';
 import { getPublicTournamentInfo, submitRegistration } from '../api/publicRegistration';
@@ -13,6 +13,7 @@ const ERROR_MESSAGES: Record<string, string> = {
   ALREADY_REGISTERED: 'You already have a pending or approved registration for this tournament.',
   GUEST_NAME_REQUIRED: 'Enter your name to register as a guest.',
   INVALID_REGISTRATION: "You can't register for this tournament.",
+  IDEMPOTENCY_KEY_REUSED: 'Something went wrong with this form — reload the page and register again.',
 };
 
 function errorMessageFor(err: unknown): string {
@@ -30,6 +31,10 @@ export function RegisterPage() {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [submitted, setSubmitted] = useState(false);
+  // One key per distinct submission, reused when the same name/email is
+  // retried (a lost or timed-out response) so the server records it once;
+  // a changed name/email is a different submission and gets a fresh key.
+  const submission = useRef<{ key: string; name: string; email: string } | null>(null);
 
   const justSignedIn = searchParams.get('signedIn') === '1';
 
@@ -57,7 +62,12 @@ export function RegisterPage() {
     setSubmitting(true);
     setSubmitError(null);
     try {
-      await submitRegistration(token, { guestName, guestEmail });
+      const name = guestName.trim();
+      const email = guestEmail.trim();
+      if (!submission.current || submission.current.name !== name || submission.current.email !== email) {
+        submission.current = { key: crypto.randomUUID(), name, email };
+      }
+      await submitRegistration(token, { guestName, guestEmail, idempotencyKey: submission.current.key });
       setSubmitted(true);
     } catch (err) {
       setSubmitError(errorMessageFor(err));

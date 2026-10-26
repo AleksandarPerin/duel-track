@@ -33,7 +33,7 @@ export async function getPublicTournamentInfo(token: string): Promise<PublicTour
 export async function submitRegistration(
   token: string,
   actor: { userId: string } | null,
-  guest: { guest_name?: string; guest_email?: string },
+  guest: { guest_name?: string; guest_email?: string; idempotency_key?: string },
 ): Promise<TournamentRegistrationView> {
   const tournament = await getTournamentByToken(token);
   if (tournament.status !== 'registration') {
@@ -92,16 +92,40 @@ export async function submitRegistration(
     throw new AppError('GUEST_NAME_REQUIRED', 'guest_name is required when not logged in');
   }
 
+  const guestEmail = guest.guest_email ?? null;
+  const idempotencyKey = guest.idempotency_key ?? null;
+  const GUEST_COLUMNS = `id, tournament_id, user_id, guest_name, guest_email,
+    status, decided_by, decided_at, created_at, guest_name AS display_name`;
+
+  // A guest has no account to key uniqueness on, so a retry after a lost or
+  // timed-out response would create a duplicate entry. The client's per-form
+  // idempotency key makes the retry recognisable: ON CONFLICT is atomic, so
+  // two concurrent copies of the same submission still produce one row, and
+  // two different guests (different keys) are never merged — whatever their
+  // names. No key (older clients): plain insert, duplicates left for the
+  // organizer to reject, as before.
   const { rows } = await pool.query<TournamentRegistrationView>(
-    `INSERT INTO tournament_registrations (tournament_id, guest_name, guest_email)
-     VALUES ($1, $2, $3)
-     RETURNING id, tournament_id, user_id, guest_name, guest_email,
-               status, decided_by, decided_at, created_at, guest_name AS display_name`,
-    [tournament.id, guestName, guest.guest_email ?? null],
+    `INSERT INTO tournament_registrations (tournament_id, guest_name, guest_email, idempotency_key)
+     VALUES ($1, $2, $3, $4)
+     ON CONFLICT (tournament_id, idempotency_key) DO NOTHING
+     RETURNING ${GUEST_COLUMNS}`,
+    [tournament.id, guestName, guestEmail, idempotencyKey],
   );
-  const row = rows[0];
-  if (!row) throw new Error('INSERT registration returned no rows');
-  return row;
+  if (rows[0]) return rows[0];
+
+  const { rows: existing } = await pool.query<TournamentRegistrationView>(
+    `SELECT ${GUEST_COLUMNS} FROM tournament_registrations
+     WHERE tournament_id = $1 AND idempotency_key = $2`,
+    [tournament.id, idempotencyKey],
+  );
+  const prior = existing[0];
+  // A retry carries the same name and email. Anything else reusing the key
+  // is a client bug (or a guessed key) — reject it rather than hand back
+  // another submission's row.
+  if (!prior || prior.user_id !== null || prior.guest_name !== guestName || prior.guest_email !== guestEmail) {
+    throw new AppError('IDEMPOTENCY_KEY_REUSED', 'This submission key was already used for a different registration');
+  }
+  return prior;
 }
 
 function isUniqueViolation(err: unknown): boolean {

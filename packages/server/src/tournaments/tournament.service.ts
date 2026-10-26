@@ -1,7 +1,7 @@
 import { pool } from '../db/pool';
 import { AppError } from '../errors/AppError';
 import type { Tournament, TournamentPlayerView } from '@dueltrack/shared';
-import type { CreateTournamentInput, UpdateTournamentInput } from './tournament.schemas';
+import type { CreateTournamentInput } from './tournament.schemas';
 
 export const EDITABLE_STATUSES = new Set(['draft', 'registration']);
 const MAX_CSV_PLAYERS = 512;
@@ -177,63 +177,6 @@ export async function openRegistration(
   const updated = rows[0];
   if (!updated) throw new AppError('TOURNAMENT_NOT_FOUND', 'Tournament was deleted concurrently');
   return updated;
-}
-
-export async function updateTournament(
-  id: string,
-  organizerId: string,
-  input: UpdateTournamentInput,
-): Promise<{ tournament: Tournament; changed: boolean; changedFields: Partial<UpdateTournamentInput> }> {
-  const tournament = await getTournament(id);
-
-  if (tournament.organizer_id !== organizerId) {
-    throw new AppError('FORBIDDEN', 'Only the organizer can modify this tournament');
-  }
-  if (!EDITABLE_STATUSES.has(tournament.status)) {
-    throw new AppError(
-      'TOURNAMENT_NOT_EDITABLE',
-      `Tournament cannot be modified in status "${tournament.status}"`,
-    );
-  }
-
-  // Only fields whose value actually differs from the stored row: a form that
-  // resubmits every field shouldn't make the audit log claim it changed all
-  // of them. scheduled_at is compared as an instant, since the stored value
-  // and the submitted ISO string can spell the same time differently.
-  const toTime = (v: unknown) => (v == null ? null : new Date(v as string).getTime());
-  const changedFields: Partial<UpdateTournamentInput> = {};
-  if (input.name !== undefined && input.name !== tournament.name) changedFields.name = input.name;
-  if (input.venue !== undefined && (input.venue ?? null) !== (tournament.venue ?? null)) {
-    changedFields.venue = input.venue;
-  }
-  if (input.scheduled_at !== undefined && toTime(input.scheduled_at) !== toTime(tournament.scheduled_at)) {
-    changedFields.scheduled_at = input.scheduled_at;
-  }
-
-  // Column names go into the SQL text, so they come from this fixed map —
-  // never from the keys of an object that could one day carry client input.
-  const COLUMNS = { name: 'name', venue: 'venue', scheduled_at: 'scheduled_at' } as const;
-  const updates: string[] = [];
-  const values: unknown[] = [];
-  let idx = 1;
-  for (const key of Object.keys(COLUMNS) as (keyof typeof COLUMNS)[]) {
-    if (!(key in changedFields)) continue;
-    updates.push(`${COLUMNS[key]} = $${idx++}`);
-    values.push(changedFields[key]);
-  }
-
-  if (updates.length === 0) return { tournament, changed: false, changedFields };
-
-  values.push(id);
-  const { rows } = await pool.query<Tournament>(
-    `UPDATE tournaments SET ${updates.join(', ')} WHERE id = $${idx}
-     RETURNING id, organizer_id, name, format, rel_level, venue, scheduled_at,
-               status, total_rounds, current_round, top_cut, created_at`,
-    values,
-  );
-  const updated = rows[0];
-  if (!updated) throw new AppError('TOURNAMENT_NOT_FOUND', 'Tournament was deleted concurrently');
-  return { tournament: updated, changed: true, changedFields };
 }
 
 // ── Player management ──────────────────────────────────────────────────────
