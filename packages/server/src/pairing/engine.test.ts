@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { afterEach, describe, it, expect, vi } from 'vitest';
 import { generatePairings, assignTables } from './engine';
 import type { PlayerRecord, PriorMatch } from './types';
 
@@ -145,16 +145,68 @@ describe('generatePairings', () => {
     expect(ids).toEqual(['X', 'Y']);
   });
 
+  // A and B lead the 6-point bracket, C and D the 3-point one: without a
+  // prior match the engine pairs A-B (see 'prefers same-bracket pairings'
+  // below), so these only pass if the prior match actually changes that.
+  // Swiss definition: no player meets the same opponent twice when a
+  // pairing without rematches exists — even at the cost of pairing across
+  // brackets (A-C + B-D here).
+  const twoBrackets = () => [
+    player('A', { sort_seed: 1, match_points: 6 }),
+    player('B', { sort_seed: 2, match_points: 6 }),
+    player('C', { sort_seed: 3, match_points: 3 }),
+    player('D', { sort_seed: 4, match_points: 3 }),
+  ];
+  const pairsOf = (r: { matches: { player1_id: string; player2_id: string }[] }) =>
+    r.matches.map((m) => [m.player1_id, m.player2_id].sort().join('-')).sort();
+  // A-C + B-D and A-D + B-C cost the same; the seed hash picks between
+  // them, so either is a correct rematch-free answer.
+  const CROSS_BRACKET = [['A-C', 'B-D'], ['A-D', 'B-C']];
+
+  it('pairs across brackets rather than allow a rematch', () => {
+    expect(pairsOf(generatePairings(twoBrackets(), []))).toEqual(['A-B', 'C-D']);
+    const r = generatePairings(twoBrackets(), [prior('A', 'B')]);
+    expect(CROSS_BRACKET).toContainEqual(pairsOf(r));
+  });
+
   it('handles prior match given in reverse order', () => {
+    // Prior stored with reversed player order — still a rematch.
+    const r = generatePairings(twoBrackets(), [prior('B', 'A')]);
+    expect(CROSS_BRACKET).toContainEqual(pairsOf(r));
+  });
+
+  it('avoids a rematch even when that costs several bracket crossings', () => {
+    // A, B on 9 points have played; brackets are numbered by the point
+    // totals present (9, 6, 3, 0), so X and Y fill the gap. The best
+    // rematch-free pairing crosses 3 bracket steps; the rematch would cross
+    // one — still not chosen.
     const ps = [
-      player('A', { sort_seed: 1 }),
-      player('B', { sort_seed: 2 }),
-      player('C', { sort_seed: 3 }),
-      player('D', { sort_seed: 4 }),
+      player('A', { sort_seed: 1, match_points: 9 }),
+      player('B', { sort_seed: 2, match_points: 9 }),
+      player('X', { sort_seed: 5, match_points: 6 }),
+      player('Y', { sort_seed: 6, match_points: 3 }),
+      player('C', { sort_seed: 3, match_points: 0 }),
+      player('D', { sort_seed: 4, match_points: 0 }),
     ];
-    // Prior stored with reversed player order — should still count as a rematch
-    const r = generatePairings(ps, [prior('B', 'A')]);
-    const pairs = r.matches.map((m) => [m.player1_id, m.player2_id].sort().join('-'));
+    const pairs = pairsOf(generatePairings(ps, [prior('A', 'B')]));
+    expect(pairs).not.toContain('A-B');
+  });
+
+  it('keeps avoiding the rematch when every nearby opponent is also a rematch', () => {
+    // A and B (9 points) have played each other and both 6-point players,
+    // so a rematch-free pairing must reach two brackets down (cost 2 × 60).
+    // Only a rematch penalty far above bracket costs still avoids A-B here.
+    const ps = [
+      player('A', { sort_seed: 1, match_points: 9 }),
+      player('B', { sort_seed: 2, match_points: 9 }),
+      player('X1', { sort_seed: 3, match_points: 6 }),
+      player('X2', { sort_seed: 4, match_points: 6 }),
+      player('Y1', { sort_seed: 5, match_points: 3 }),
+      player('Y2', { sort_seed: 6, match_points: 3 }),
+    ];
+    const priors = [prior('A', 'B'), prior('A', 'X1'), prior('A', 'X2'), prior('B', 'X1'), prior('B', 'X2')];
+    const pairs = pairsOf(generatePairings(ps, priors));
+    expect(pairs).toContain('X1-X2');
     expect(pairs).not.toContain('A-B');
   });
 
@@ -207,10 +259,12 @@ describe('generatePairings', () => {
   it('produces different output when inputs differ', () => {
     const ps = players(4);
     const r1 = generatePairings(ps, []);
-    const r2 = generatePairings(ps, [prior('p1', 'p2')]);
-    // At least the pairing of p1-p2 should be suppressed in r2
-    const pairs2 = r2.matches.map((m) => [m.player1_id, m.player2_id].sort().join('-'));
-    expect(pairs2).not.toContain('p1-p2');
+    // Whatever r1 paired first, making it a prior match must break it up.
+    const first = r1.matches[0]!;
+    const r2 = generatePairings(ps, [prior(first.player1_id, first.player2_id)]);
+    const key = [first.player1_id, first.player2_id].sort().join('-');
+    expect(pairsOf(r1)).toContain(key);
+    expect(pairsOf(r2)).not.toContain(key);
   });
 
   // ── Scale ──────────────────────────────────────────────────────────────────
@@ -234,6 +288,45 @@ describe('generatePairings', () => {
     expect(r.bye_player_id).not.toBeNull();
     expect(elapsed).toBeLessThan(3_000);
   }, 10_000);
+
+  // ── Bye priority between keys ──────────────────────────────────────────────
+
+  it('gives the bye to the player with fewer byes even if they have more points', () => {
+    // byes_received outranks match points: a second bye is avoided first.
+    const ps = [
+      player('P', { sort_seed: 1, byes_received: 1, match_points: 0 }),
+      player('Q', { sort_seed: 2, byes_received: 0, match_points: 3 }),
+      player('R', { sort_seed: 3, byes_received: 1, match_points: 3 }),
+    ];
+    expect(generatePairings(ps, []).bye_player_id).toBe('Q');
+  });
+
+  it('breaks a points tie by lower OMW, before sort_seed', () => {
+    const ps = [
+      player('P', { sort_seed: 1, match_points: 3, omw_pct: 0.5 }),
+      player('Q', { sort_seed: 2, match_points: 3, omw_pct: 0.4 }),
+      player('R', { sort_seed: 3, match_points: 6, omw_pct: 0.3 }),
+    ];
+    expect(generatePairings(ps, []).bye_player_id).toBe('Q');
+  });
+
+  // ── Slow-pairing warning ───────────────────────────────────────────────────
+
+  describe('slow-pairing warning', () => {
+    afterEach(() => vi.restoreAllMocks());
+    const timed = (ms: number) => {
+      vi.spyOn(Date, 'now').mockReturnValueOnce(1_000).mockReturnValueOnce(1_000 + ms);
+      return generatePairings(players(4), []);
+    };
+
+    it('warns when blossom takes longer than 2.5 s', () => {
+      expect(timed(2_501).warning).toMatch(/took 2501ms/);
+    });
+
+    it('stays quiet at exactly 2.5 s', () => {
+      expect(timed(2_500).warning).toBeUndefined();
+    });
+  });
 });
 
 // ── assignTables ─────────────────────────────────────────────────────────────

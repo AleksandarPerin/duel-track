@@ -47,6 +47,15 @@ describe('pending logout', () => {
     expect(storage.size).toBe(1);
   });
 
+  it('keeps it remembered when the server answers with an error', async () => {
+    // Only a confirmed logout (2xx) means the refresh token was revoked.
+    fetchMock.mockImplementation(async () => new Response('{}', { status: 500 }));
+    logoutDuringNavigation();
+    await completePendingLogout();
+    expect(logoutCalls()).toHaveLength(2);
+    expect(storage.size).toBe(1);
+  });
+
   it('does nothing when no logout is pending', async () => {
     await completePendingLogout();
     expect(logoutCalls()).toHaveLength(0);

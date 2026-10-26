@@ -1,5 +1,12 @@
 import type { ResultInput } from '@dueltrack/shared';
-import { ensureCsrfToken, fetchWithTimeout, redirectToLogin, REQUEST_TIMEOUT_MS, resetCsrfToken } from '../api/client';
+import {
+  CSRF_PRIME_TIMEOUT_MS,
+  ensureCsrfToken,
+  fetchWithTimeout,
+  redirectToLogin,
+  REQUEST_TIMEOUT_MS,
+  resetCsrfToken,
+} from '../api/client';
 import { resultErrorMessage } from '../api/resultErrors';
 import { getSessionUserId } from '../api/sessionUser';
 import { classifySyncAttempt } from './classify';
@@ -18,8 +25,8 @@ export function notifyQueueUpdated(): void {
 // ones may still be in flight in another tab — reclaiming those sent the
 // same result twice and let the loser's 409 re-create a record the winner
 // had already deleted. Covers the longest a live attempt can take: a CSRF
-// prime (10s) plus the POST (REQUEST_TIMEOUT_MS), with margin.
-export const STALE_SYNCING_MS = 10_000 + REQUEST_TIMEOUT_MS + 15_000;
+// prime (CSRF_PRIME_TIMEOUT_MS) plus the POST (REQUEST_TIMEOUT_MS), with margin.
+export const STALE_SYNCING_MS = CSRF_PRIME_TIMEOUT_MS + REQUEST_TIMEOUT_MS + 15_000;
 
 // A CSRF rejection is normally cleared by re-priming the token, so it's
 // retried — but one that never clears (e.g. the _csrf cookie is blocked)
