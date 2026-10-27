@@ -155,14 +155,13 @@ describe('computeStandings', () => {
     expect(b.omw_percent).toBe(1.0);
   });
 
-  it("excludes bye from player's non_bye_played (does not inflate opponents OMW%)", () => {
-    // A beats B. A also has a bye. C faces A.
-    // For C's OMW%: A's MWP = non_bye_wins/non_bye_played = 1/1 (only the match vs B counts, not the bye)
+  it("counts a player's bye in their MWP as opponents see it (MTR App. C)", () => {
+    // A beats B, has a bye, loses to C. C's only opponent is A.
+    // MWP(A) = 6 match points / (3 × 3 rounds) = 0.6667 — the bye is a 3-point round.
     const records = [win(1, 'A', 'B'), bye(2, 'A'), win(3, 'C', 'A')];
     const entries = computeStandings(['A', 'B', 'C'], records, 3);
     const c = byId(entries, 'C');
-    // A: non_bye_wins=1 (beat B), non_bye_played=2 (B and C) → MWP(A)=max(0.33,1/2)=0.5
-    expect(c.omw_percent).toBe(0.5);
+    expect(c.omw_percent).toBe(0.6667);
   });
 
   // ── Draw / ID / DML ──────────────────────────────────────────────────────
@@ -180,13 +179,10 @@ describe('computeStandings', () => {
     expect(b.game_wins).toBe(1);
   });
 
-  // The GW% of a drawn game was pinned here at the PRD's 0.3333 (a drawn
-  // game counted as 0). MTR Appendix E counts it as 1 game point —
-  // (3·1 + 1) / (3·3) = 0.4444 — and draws likewise as 1/3 in opponents'
-  // MWP. Not pinned either way until the MTR reading is confirmed (C-1).
-  it.todo('GW% and opponents\' MWP of a drawn match follow MTR Appendix E (C-1)');
+  // GW% and OMW% of drawn matches and games are pinned against the MTR in
+  // standings.engine.mtr.test.ts.
 
-  it('scores an intentional draw with 0 games recorded', () => {
+  it('scores an intentional draw with 0 games recorded as 0-0-3 (MTR §2.5)', () => {
     const records = [id(1, 'A', 'B')];
     const entries = computeStandings(['A', 'B'], records, 1);
     const a = byId(entries, 'A');
@@ -195,11 +191,14 @@ describe('computeStandings', () => {
     expect(a.match_draws).toBe(1);
     expect(a.game_wins).toBe(0);
     expect(a.game_losses).toBe(0);
-    // GW% = floor (0 games played)
-    expect(a.gw_percent).toBe(0.33);
+    // Three drawn games: GW% = 3 / (3 × 3) = 0.3333
+    expect(a.gw_percent).toBe(0.3333);
     expect(b.match_points).toBe(1);
   });
 
+  // The MTR does not cover double losses. Match loss = 0 points (MTR App. C);
+  // WER recorded a double match loss as 0-2 for each player (Magic Judges
+  // forum, 2019: apps.magicjudges.org/forum/post/276445, /post/279562).
   it('scores a double match loss with 0 wins and 2 game losses each', () => {
     const records = [dml(1, 'A', 'B')];
     const entries = computeStandings(['A', 'B'], records, 1);
@@ -315,17 +314,18 @@ describe('computeStandings', () => {
     // B has no more results after round 1 (dropped)
     const entries = computeStandings(['A', 'B', 'C'], records, 2);
     const a = byId(entries, 'A');
-    // B: non_bye_wins=0, non_bye_played=1 → MWP=0.33
-    // C: non_bye_wins=0, non_bye_played=1 → MWP=0.33
+    // B: 0 match points in 1 round → MWP = max(0.33, 0) = 0.33
+    // C: 0 match points in 1 round → MWP = max(0.33, 0) = 0.33
     expect(a.omw_percent).toBe(0.33);
   });
 
   // ── GW% floor ────────────────────────────────────────────────────────────
 
-  it('applies GW% floor for player with 0 games played (all IDs)', () => {
-    const records = [id(1, 'A', 'B')];
-    const entries = computeStandings(['A', 'B'], records, 1);
-    expect(byId(entries, 'A').gw_percent).toBe(0.33);
+  it('applies GW% floor for a player with 0 games played', () => {
+    // C has a result-less pairing only (no outcome entered yet).
+    const records: MatchRecord[] = [{ ...win(1, 'C', 'D'), outcome: null }];
+    const entries = computeStandings(['C', 'D'], records, 1);
+    expect(byId(entries, 'C').gw_percent).toBe(0.33);
   });
 
   it('applies GW% floor for player with 0 game wins', () => {
@@ -342,7 +342,7 @@ describe('computeStandings', () => {
 });
 
 describe('computeStandings — OGW% of a player with a single opponent', () => {
-  // B played only round 1 (lost 1-2 to A), then left. MTR Appendix E: OGW%
+  // B played only round 1 (lost 1-2 to A), then left. MTR Appendix C: OGW%
   // is the mean of the opponents' GW% — for B, just A's: A won 4 of 5 games.
   it("is that one opponent's GW%", () => {
     const records = [win(1, 'A', 'B', '2-1'), win(2, 'A', 'C')];
@@ -351,13 +351,12 @@ describe('computeStandings — OGW% of a player with a single opponent', () => {
   });
 });
 
-// ── Tiebreaker order (MTR Appendix E) ────────────────────────────────────────
+// ── Tiebreaker order (MTR §3.1, Appendix C) ──────────────────────────────────
 // Order: match points, then OMW%, then GW%, then OGW%, all descending.
-// Expected values were computed independently from the MTR Appendix E
+// Expected values were computed independently from the MTR Appendix C
 // formulas (match points / 3·rounds, game points / 3·games, 0.33 floor per
-// opponent), not by this engine. The fixture has no draws and no byes —
-// the cases where this engine's PRD-based draw/bye handling is still
-// unconfirmed against the MTR — so here the two must agree.
+// opponent), not by this engine. Draws and byes are covered in
+// standings.engine.mtr.test.ts.
 describe('computeStandings — tiebreaker order', () => {
   // [player1, player2, player1 game wins, player2 game wins, round]
   const event: [string, string, number, number, number][] = [
