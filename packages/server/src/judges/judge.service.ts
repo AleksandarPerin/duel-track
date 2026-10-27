@@ -48,6 +48,22 @@ export async function assignJudge(
       throw new AppError('INVALID_JUDGE', 'A player registered in this tournament cannot be assigned as a judge');
     }
 
+    // A pending self-registration would otherwise only conflict when the
+    // organizer approves it. submitRegistration() does not take the advisory
+    // lock, so a concurrent sign-up can still slip in; approving it is then
+    // refused by assertUserIsNotJudge().
+    const { rows: pendingRows } = await client.query(
+      `SELECT 1 FROM tournament_registrations
+       WHERE tournament_id = $1 AND user_id = $2 AND status = 'pending'`,
+      [tournamentId, targetUserId],
+    );
+    if (pendingRows[0]) {
+      throw new AppError(
+        'JUDGE_HAS_PENDING_REGISTRATION',
+        'This user has a pending registration for this tournament — approve or reject it first',
+      );
+    }
+
     const { rows: userRows } = await client.query<{ display_name: string; email: string }>(
       'SELECT display_name, email FROM users WHERE id = $1',
       [targetUserId],

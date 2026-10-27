@@ -19,6 +19,7 @@ import profileRoutes, { playerLinkRoutes } from './profile/profile.routes';
 import publicRoutes from './public/public.routes';
 import archiveRoutes from './archive/archive.routes';
 import wsRoutes from './ws/ws.routes';
+import { closeBroadcaster } from './ws/broadcaster';
 import apiTokensRoutes from './api-tokens/api-tokens.routes';
 import externalRoutes from './external/external.routes';
 
@@ -45,6 +46,12 @@ export async function buildApp() {
 
   // Wire pool errors through the structured Fastify logger
   setPoolLogger((msg, err) => app.log.error({ err }, msg));
+
+  // app.close() releases the shared Postgres pool and Redis clients, so a
+  // process (or test file) that closes the app can exit cleanly.
+  app.addHook('onClose', async () => {
+    await Promise.allSettled([pool.end(), redis.quit(), closeBroadcaster()]);
+  });
 
   // Plugin registration order: cookie → cors → rate-limit → csrf
   await app.register(cookie);

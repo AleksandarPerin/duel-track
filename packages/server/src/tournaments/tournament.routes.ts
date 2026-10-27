@@ -18,8 +18,8 @@ import {
   addGuestPlayer,
   removePlayer,
   reorderSeeds,
-  importPlayersFromCsv,
 } from './tournament.service';
+import { importPlayersFromCsv } from './player.csvImport.service';
 import { updateTournament } from './tournament.update.service';
 import { dropPlayer } from './player.drop.service';
 
@@ -61,6 +61,7 @@ function handleServiceError(err: unknown, reply: FastifyReply) {
     TOURNAMENT_NOT_EDITABLE: 409,
     TOURNAMENT_NOT_IN_PROGRESS: 409,
     PLAYER_ALREADY_REGISTERED: 409,
+    PLAYER_IS_JUDGE: 409,
     PLAYER_NOT_ACTIVE: 409,
     DUPLICATE_SEEDS: 422,
     INVALID_SEED_LIST: 422,

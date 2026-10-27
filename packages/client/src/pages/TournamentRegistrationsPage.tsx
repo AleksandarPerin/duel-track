@@ -6,7 +6,7 @@ import { decideRegistration, getRegistrationLink, listRegistrations } from '../a
 import { ApiError } from '../api/client';
 import { AppHeader } from '../components/AppHeader';
 
-function decisionErrorMessage(code: string): string {
+export function decisionErrorMessage(code: string): string {
   switch (code) {
     case 'REGISTRATION_ALREADY_DECIDED':
       return 'This registration was already decided — refresh to see its current status.';
@@ -14,6 +14,8 @@ function decisionErrorMessage(code: string): string {
       return "Can't add players — the tournament has already started.";
     case 'PLAYER_ALREADY_REGISTERED':
       return 'That person was already added as a player — this entry was auto-rejected.';
+    case 'PLAYER_IS_JUDGE':
+      return 'This person is a judge for this tournament — remove them as a judge first, or reject the registration.';
     default:
       return `Failed to decide (${code}).`;
   }
