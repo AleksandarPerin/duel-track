@@ -9,6 +9,7 @@
 > **Review changelog:**
 > - **v1.0 → v1.1:** Domain corrections, implementation fixes, and completeness additions — see [Appendix A](#appendix-a--review-notes).
 > - **v1.1 → v1.2:** All Phase 1 open questions resolved (OQ-02, OQ-04, OQ-05, OQ-06, OQ-08) — see [Appendix B](#appendix-b--v12-open-question-resolutions). Stale v1.0 draft (`PRD.md`) retired.
+> - **v1.2 → v1.3:** §5.4 tiebreaker rules corrected to the MTR (27 February 2026): draws worth 1 point in MWP and GWP, byes counted in the receiver's MWP, intentional draws recorded 0-0-3. Tiebreakers are MTR Appendix C, not E (Appendix A's v1.1 correction was itself wrong).
 
 ---
 
@@ -33,7 +34,7 @@
 
 DuelTrack is a web-based Magic: The Gathering tournament management application designed to automate and streamline the full lifecycle of competitive MtG events — from player registration through Swiss-round pairings, results entry, standings calculation, and post-tournament statistics. The product targets local game stores (LGSs), regional organizers, and independent tournament organizers (TOs) who currently rely on fragile spreadsheets or desktop-only legacy tools such as Wizards Event Reporter (WER).
 
-DuelTrack delivers a modern, mobile-responsive web interface backed by a robust Swiss pairing engine that is fully compliant with the Magic Tournament Rules (MTR) tiebreaker methodology, specifically MTR Appendix E. Its self-serve model means any organizer can run a sanctioned-quality event without specialized software installation or vendor lock-in.
+DuelTrack delivers a modern, mobile-responsive web interface backed by a robust Swiss pairing engine that is fully compliant with the Magic Tournament Rules (MTR) tiebreaker methodology, specifically MTR Appendix C. Its self-serve model means any organizer can run a sanctioned-quality event without specialized software installation or vendor lock-in.
 
 ---
 
@@ -133,7 +134,7 @@ Tournament organizers running Magic: The Gathering events lack a reliable, acces
 ### Goals
 
 1. Provide a web-first (no install required) tournament management tool usable on desktop and mobile
-2. Implement a Swiss pairing engine fully compliant with WotC's Magic Tournament Rules (MTR) — including Opponent Match Win % (OMW%), Game Win % (GW%), and Opponent Game Win % (OGW%) tiebreakers per **MTR Appendix E**
+2. Implement a Swiss pairing engine fully compliant with WotC's Magic Tournament Rules (MTR) — including Opponent Match Win % (OMW%), Game Win % (GW%), and Opponent Game Win % (OGW%) tiebreakers per **MTR Appendix C**
 3. Support events from 8 to 512 players across all competitive RELs
 4. Expose real-time public standings and pairings via shareable links (no login required for players to view)
 5. Maintain full player profiles and historical statistics across events
@@ -238,7 +239,7 @@ DRAFT → REGISTRATION_OPEN → IN_PROGRESS → TOP_CUT → COMPLETED → ARCHIV
 ### 5.3 Swiss Pairing Engine
 
 #### Description
-The core algorithmic component. Generates optimal pairings for each round of Swiss play, minimising repeat pairings and respecting match-point-based seeding, in compliance with WotC MTR Section 8 (Swiss Pairings) and Appendix E (Tiebreakers).
+The core algorithmic component. Generates optimal pairings for each round of Swiss play, minimising repeat pairings and respecting match-point-based seeding, in compliance with WotC MTR Section 8 (Swiss Pairings) and Appendix C (Tiebreakers).
 
 #### Functional Requirements
 
@@ -246,7 +247,7 @@ The core algorithmic component. Generates optimal pairings for each round of Swi
 |----|-------------|----------|---------------------|
 | PAR-01 | Players paired within the same match-points bracket first; cross-bracket pairing only when a bracket has an odd number of players (carry-down rule) | Must Have | All players with equal points paired against each other before crossing brackets |
 | PAR-02 | No player paired against the same opponent twice if any valid alternative exists; repeat pairings permitted only when unavoidable and must be logged | Must Have | System exhausts all non-rematch options before permitting a rematch; any repeat pairing appears in the audit log |
-| PAR-03 | Bye assignment: the lowest-ranked active player who has received the fewest byes in this tournament receives the bye when the player count is odd; ties broken by sort_seed | Must Have | Bye player receives 3 match points and a 2-0-0 game record credit; the bye round is excluded from that player's OMW% and OGW% calculations; byes_received incremented |
+| PAR-03 | Bye assignment: the lowest-ranked active player who has received the fewest byes in this tournament receives the bye when the player count is odd; ties broken by sort_seed | Must Have | Bye player receives 3 match points and a 2-0-0 game record credit (6 game points), both counted in their own MWP and GW%; the bye is not an opponent, so it is left out of the opponent list for that player's OMW% and OGW%; byes_received incremented |
 | PAR-04 | Seat assignment (player 1 / player 2 within a pairing) randomized | Must Have | Determined by a hash of the pairing ID for reproducibility; not deterministically biased toward any player |
 | PAR-05 | Pairings generated in under 3 seconds for ≤ 512 players | Must Have | Measured at p99 on reference hardware |
 | PAR-06 | Pairings output sorted by table number; top tables = highest combined match-points matchup | Must Have | Table 1 = highest-points pairing |
@@ -260,7 +261,7 @@ The core algorithmic component. Generates optimal pairings for each round of Swi
 ### 5.4 Results Entry & Standings
 
 #### Description
-Table judges and the head judge record match results. The system recalculates standings and tiebreakers after each round is completed, in strict compliance with MTR Appendix E.
+Table judges and the head judge record match results. The system recalculates standings and tiebreakers after each round is completed, in strict compliance with MTR Appendix C.
 
 #### Functional Requirements
 
@@ -269,12 +270,12 @@ Table judges and the head judge record match results. The system recalculates st
 | RES-01 | TO and judges can enter results by table number; valid result types: 2-0, 2-1, 1-2, 0-2, 1-1-1 (match draw), intentional draw (ID), double match loss | Must Have | Result saved and validated against game-count constraints; standings updated atomically after round is advanced |
 | RES-02 | Results locked after round advances; TO can unlock a specific result for correction with a mandatory reason | Must Have | Unlock creates audit log entry with actor, timestamp, reason, previous value, and new value |
 | RES-03 | Standings recalculate and persist within 1 second of the TO advancing the round | Must Have | Standings page reflects updated data without full page reload |
-| RES-04 | Tiebreakers calculated strictly per MTR Appendix E: OMW%, GW%, OGW% in that order | Must Have | All three values displayed in standings; sort order enforced server-side, never client-side only |
+| RES-04 | Tiebreakers calculated strictly per MTR Appendix C: OMW%, GW%, OGW% in that order | Must Have | All three values displayed in standings; sort order enforced server-side, never client-side only |
 | RES-05 | Public standings page accessible via shareable URL (no login); standings are hidden until the TO explicitly publishes them for each round | Must Have | Unpublished standings visible only to TO and Judge roles; published page auto-refreshes every 30 seconds |
 | RES-06 | Players can find their current pairing by name search or table number | Must Have | Results returned in under 500 ms |
 | RES-07 | Dropped player handling: open match resolved automatically as a match loss for the dropped player; opponent receives a 2-0 game record win | Must Have | No manual result entry required when a drop is triggered via the drop action |
 | RES-08 | Judge role can enter and edit results for the current round but cannot advance rounds or modify tournament settings | Must Have | Role enforced server-side on every mutation endpoint |
-| RES-09 | Intentional Draw (ID) must be explicitly selected via a dedicated control with a confirmation dialog; it must not appear as a default result option | Must Have | ID records 0 game wins / 0 game losses / 0 games played for both players; both receive 1 match point; the match does not contribute to GW% |
+| RES-09 | Intentional Draw (ID) must be explicitly selected via a dedicated control with a confirmation dialog; it must not appear as a default result option | Must Have | An ID with no games played is recorded 0-0-3 (MTR §2.5): three drawn games, 3 game points of 9 for each player's GW%; both receive 1 match point |
 | RES-10 | Export standings as CSV or PDF at any point during the tournament | Should Have | Download available within 2 seconds; includes all tiebreaker columns |
 
 #### Standings Display Columns
@@ -283,7 +284,7 @@ Table judges and the head judge record match results. The system recalculates st
 Rank | Player Name | Points | Record (W-L-D) | OMW% | GW% | OGW%
 ```
 
-#### Tiebreaker Calculation Rules (MTR Appendix E — Normative)
+#### Tiebreaker Calculation Rules (MTR Appendix C — Normative)
 
 The following rules are normative. The implementation must match them exactly. Any deviation is a bug.
 
@@ -299,27 +300,30 @@ The following rules are normative. The implementation must match them exactly. A
 **Opponent Match-Win Percentage (OMW%)**
 
 ```
-For each active opponent O of player P (bye rounds excluded):
-    MWP(O) = max(0.33, O.match_wins / O.matches_played)
+MWP(O) = max(0.33, O.match_points / (3 × O.rounds_played))   — bye rounds included
 
+For each opponent O of player P (P's bye rounds excluded):
 OMW%(P) = mean( MWP(O) for all O in opponents(P) )
 ```
 
 Critical implementation note: the 0.33 floor is applied to each **individual opponent's MWP** before computing the average. It is not applied to the final OMW% value. Applying the floor to the average instead of per-opponent is a common mistake that produces different results.
 
-Bye rounds are excluded from the opponent list entirely: the bye does not count as an opponent, and the bye round is not included in P's `matches_played` for other players computing OMW% against P.
+A bye is not an opponent: it is left out of P's own opponent list. It still counts as a 3-point round in P's MWP, including when P's opponents average it (MTR Appendix C: 3-2-0 including a bye = 9/15 = 0.60).
 
 **Game Win Percentage (GW%)**
 
 ```
-GW%(P) = max(0.33, P.game_wins / P.games_played)
+game points = 3 × games won + 1 × drawn games
+GW%(P) = max(0.33, P.game_points / (3 × P.games_played))
 ```
 
-- Bye credit: +2 game wins, +2 games played added to P's totals.
-- Intentional Draw credit: +0 game wins, +0 games played (ID adds nothing to GW%).
-- 1-1-1 match draw: each player records 1 game win, 1 game loss, 1 drawn game (3 games total in denominator).
-- 2-1 match: winning player records 2 game wins, 3 games played; losing player records 1 game win, 3 games played.
-- Double Match Loss (0-2 / 0-2): each player records 0 game wins, 2 game losses, 2 games played.
+- Bye credit: a 2-0 win — 6 game points, 2 games played.
+- Intentional Draw with no games played: recorded 0-0-3 (MTR §2.5) — 3 game points, 3 games played.
+- 1-1-1 match draw: 4 game points, 3 games played each (GW% 0.4444).
+- 2-1 match: winner 6 game points, loser 3; 3 games played each.
+- Double Match Loss: each player recorded 0-2 — 0 game points, 2 games played. (The MTR does not cover double losses; this follows how WER recorded them.)
+
+Source: Magic Tournament Rules, 27 February 2026 release, §2.5 and Appendix C. v1.2 of this section counted draws as 0 and left byes out of MWP; both contradicted the MTR.
 
 **Opponent Game-Win Percentage (OGW%)**
 
@@ -486,9 +490,10 @@ if count(active_players) is odd:
                     breaking ties by (match_points ASC, omw_pct ASC, sort_seed ASC)
     assign bye to bye_candidate
     remove bye_candidate from matching pool before Step 5
-    credit bye_candidate with: +3 match points, +2 game wins, +2 games played
+    credit bye_candidate with: +3 match points, +2 game wins (6 game points), +2 games played,
+                               +1 round played (counted in their own MWP)
     bye_candidate.byes_received += 1
-    exclude this round from bye_candidate's OMW% and OGW% calculations
+    the bye is not an opponent: leave it out of bye_candidate's opponent list
 ```
 
 **Step 7: Assign table numbers**
@@ -712,7 +717,7 @@ CREATE INDEX idx_audit_tournament ON audit_log(tournament_id, created_at DESC);
 | Standings calculation SLA met (p99 < 1 s) | ≥ 99.9% of rounds |
 | WebSocket delivery latency (round posted → notification) | p95 < 5 seconds |
 | Data-loss incidents | Zero |
-| Tiebreaker calculation accuracy vs. independent manual verification | 100% — zero known deviations from MTR Appendix E |
+| Tiebreaker calculation accuracy vs. independent manual verification | 100% — zero known deviations from MTR Appendix C |
 
 ---
 
@@ -728,7 +733,7 @@ CREATE INDEX idx_audit_tournament ON audit_log(tournament_id, created_at DESC);
 - [ ] Player registration — TO-only manual entry and CSV bulk import
 - [ ] Swiss pairing engine (Edmonds' blossom algorithm, TypeScript implementation)
 - [ ] Results entry by TO only; result validation per RES-01 constraints
-- [ ] Standings display with MTR Appendix E tiebreakers (OMW%, GW%, OGW%)
+- [ ] Standings display with MTR Appendix C tiebreakers (OMW%, GW%, OGW%)
 - [ ] Correct bye handling (3 match points, 2-0 game credit, OMW%/OGW% exclusion)
 - [ ] Correct dropped-player handling (record frozen; retained in opponents' tiebreakers)
 - [ ] Public shareable standings URL (read-only; TO controls publication per round)
@@ -802,7 +807,7 @@ CREATE INDEX idx_audit_tournament ON audit_log(tournament_id, created_at DESC);
 | WebSocket scaling bottleneck under large concurrent events | Medium | High | Redis pub/sub horizontal scaling; load test at 512 players × 5 concurrent events before public launch |
 | Low TO adoption (habit inertia toward WER/spreadsheets) | High | High | White-glove onboarding for pilot LGSs; CSV import for existing data; "5-minute setup" positioning |
 | Player data loss (database failure) | Low | Critical | Daily backups + point-in-time recovery; transaction-safe result writes; `results` table separate from `pairings` so partial writes are detectable |
-| MTR Appendix E update invalidates tiebreaker logic | Low | Medium | Tiebreaker calculation isolated in a versioned, replaceable module; monitor WotC official MTR publication updates |
+| MTR Appendix C update invalidates tiebreaker logic | Low | Medium | Tiebreaker calculation isolated in a versioned, replaceable module; monitor WotC official MTR publication updates |
 | Judge accounts used to tamper with results | Low | High | Server-side role enforcement on every mutation endpoint; full audit log with actor ID and before/after values; TO receives in-app alert on any result modification they did not perform |
 | Simultaneous result submission conflict (two judges submit different results for the same table) | Low | High | Optimistic locking on result rows (ETag / version column); last-write-wins with full audit trail; TO sees conflict alert and resolves manually |
 
@@ -831,16 +836,16 @@ CREATE INDEX idx_audit_tournament ON audit_log(tournament_id, created_at DESC);
 |------|-----------|
 | **Blossom algorithm** | Edmonds' blossom algorithm — a polynomial-time (O(n³)) graph matching algorithm that finds the maximum weight perfect matching in a general graph. Used by DuelTrack to compute optimal Swiss pairings. |
 | **Bracket (score bracket / pod)** | The set of all active players with the same number of match points in a given round. Players are paired within their bracket before cross-bracket pairing is considered. |
-| **Bye** | A round in which a player has no opponent. The player automatically receives 3 match points and a 2-0-0 game record credit. The bye round is excluded from the player's OMW% and OGW% denominator. |
+| **Bye** | A round in which a player has no opponent. The player automatically receives 3 match points and a 2-0-0 game record credit, both counted in their own MWP and GW%. The bye is not an opponent: it is left out of the player's opponent list for OMW% and OGW%. |
 | **DCI number** | A player identifier formerly issued by Wizards of the Coast for organised play. Discontinued in 2020 and superseded by WPN player numbers. |
 | **Double Match Loss** | A penalty result (e.g., both players receive a Game Loss penalty totalling a match loss each) recorded as 0-2 / 0-2. Both players receive 0 match points. |
 | **Drop** | A player who withdraws from a tournament after it has started. Their past results are retained for opponents' tiebreaker calculations. They receive a match loss for any open match at the time of the drop. |
-| **GW%** | Game Win Percentage. `max(0.33, game_wins / games_played)`. Bye credit: +2 wins, +2 games. Intentional Draw: +0 wins, +0 games (no games played). |
-| **ID (Intentional Draw)** | A match result where both players mutually agree to record a draw without playing. Both receive 1 match point. No games are recorded; the match adds nothing to GW%. |
+| **GW%** | Game Win Percentage. `max(0.33, game_points / (3 × games_played))`; game points = 3 per game won + 1 per drawn game. Bye credit: 2-0 (6 game points, 2 games). Intentional Draw with no games played: 0-0-3 (3 game points, 3 games). |
+| **ID (Intentional Draw)** | A match result where both players mutually agree to record a draw without playing. Both receive 1 match point. Recorded 0-0-3 (MTR §2.5): three drawn games, worth 3 of 9 game points. |
 | **LGS** | Local Game Store — a retail store that hosts MtG Organised Play events. |
 | **Match** | A best-of-three contest between two players resulting in a match win, match draw, or match loss. |
 | **Match Points** | Cumulative score: Win = 3, Draw = 1, Loss = 0, Bye = 3. |
-| **MTR** | Magic: The Gathering Tournament Rules — the official WotC document governing organised play. Tiebreaker rules are defined in **Appendix E**. |
+| **MTR** | Magic: The Gathering Tournament Rules — the official WotC document governing organised play. Tiebreaker rules are defined in **Appendix C** (Appendix E is the recommended number of Swiss rounds). |
 | **OGW%** | Opponent Game Win Percentage. The mean of all opponents' GW% values (each already floored at 0.33). Bye rounds excluded. |
 | **OMW%** | Opponent Match Win Percentage. The mean of all opponents' MWP values, where each opponent's MWP is individually floored at 0.33 before averaging. Bye rounds excluded. |
 | **REL** | Rules Enforcement Level — Regular, Competitive, or Professional. Governs penalty strictness and judging policy. |
@@ -860,17 +865,17 @@ The following corrections and additions were made during the engineering/domain 
 
 | Location | Issue in v1.0 | Correction in v1.1 |
 |----------|---------------|---------------------|
-| Section 5.3 description | References "MTR Section 3 and Appendix C" | Corrected to "MTR Section 8 (Swiss Pairings) and Appendix E (Tiebreakers)". Appendix C in the MTR covers floor rules; it does not contain pairing or tiebreaker rules. |
-| Section 5.4 tiebreaker rules heading | References "MTR Appendix C" | Corrected to "MTR Appendix E" throughout. |
+| Section 5.3 description | References "MTR Section 3 and Appendix C" | **(Superseded in v1.3 — see §5.4.)** Corrected to "MTR Section 8 (Swiss Pairings) and Appendix E (Tiebreakers)". Appendix C in the MTR covers floor rules; it does not contain pairing or tiebreaker rules. |
+| Section 5.4 tiebreaker rules heading | References "MTR Appendix C" | **(Superseded in v1.3 — see §5.4.)** Corrected to "MTR Appendix E" throughout. |
 | TRN-02 round count table | First row: "4–8 → 3 rounds". The MTR defines no round count for fewer than 8 players. | Row corrected to "8 → 3 rounds". Minimum player count set to 8; enforced in TRN-03. |
 | Goals item 3 | "Support events from 4 to 512 players" | Corrected to "8 to 512 players" to match the MTR minimum. |
-| PAR-03 bye description | "bye counts as 2-0 win" | Expanded: bye = 3 match points + 2-0-0 game record credit + excluded from OMW%/OGW% denominator. All three effects are required by MTR Appendix E. |
+| PAR-03 bye description | "bye counts as 2-0 win" | **(Superseded in v1.3 — see §5.4.)** Expanded: bye = 3 match points + 2-0-0 game record credit + excluded from OMW%/OGW% denominator. All three effects are required by MTR Appendix E. |
 | RES-04 OMW% rule | "Average of each opponent's MWP (minimum 33%)" — ambiguous; can be read as flooring the final average | Rewritten to make explicit that the 0.33 floor is applied per individual opponent's MWP before averaging, not to the final OMW% result. Applying the floor to the average is a common implementation error that produces different standings. |
-| RES-04 GW% rule | No mention of how Intentional Draws affect the GW% denominator | Added: ID adds 0 games to the denominator (no games were played). |
+| RES-04 GW% rule | No mention of how Intentional Draws affect the GW% denominator | **(Superseded in v1.3 — see §5.4.)** Added: ID adds 0 games to the denominator (no games were played). |
 | RES-04 GW% rule | No mention of bye game credit vs. games_played | Added: bye credit = +2 game wins, +2 games played. |
 | TRN-05 force-advance result | "Override incomplete results with 0-0 draw" — a 0-0 draw yields 1 match point each (a draw), not a match loss | Corrected: force-advance records a match loss for the player responsible for the outstanding result; their opponent receives a 2-0 game record win. A draw is incorrect here. |
 | TRN-07 late player | "Receives byes for missed rounds" | Corrected: late players receive match losses for missed rounds. Byes in the MTR arise from odd player counts, not from late arrival. This is now explicitly distinguished. |
-| RES-09 ID game record | No specification of effect on GW% | Added: ID records 0-0-3 in the pairing (0 game wins, 0 game losses, 0 games played). Both players receive 1 match point. The match does not contribute to GW%. |
+| RES-09 ID game record | No specification of effect on GW% | **(Superseded in v1.3 — see §5.4.)** Added: ID records 0-0-3 in the pairing (0 game wins, 0 game losses, 0 games played). Both players receive 1 match point. The match does not contribute to GW%. |
 | Dropped player tiebreaker treatment | No explicit statement | Added to RES-04: dropped players' records are frozen at drop round and retained for all opponents' OMW% and OGW% calculations. |
 
 ### A.2 Implementation Corrections

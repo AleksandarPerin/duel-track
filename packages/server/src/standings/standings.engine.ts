@@ -39,24 +39,31 @@ interface Totals {
   match_draws: number;
   game_wins: number;
   game_losses: number;
-  games_played: number;
-  non_bye_wins: number;   // match wins from actual matches; used for opponent MWP
-  non_bye_played: number; // actual matches played (bye rounds excluded)
+  game_points: number;   // 3 per game won, 1 per drawn game
+  games_played: number;  // won + lost + drawn games
+  rounds_played: number; // bye rounds included
 }
 
 function zero(): Totals {
   return {
     match_points: 0, match_wins: 0, match_losses: 0, match_draws: 0,
-    game_wins: 0, game_losses: 0, games_played: 0,
-    non_bye_wins: 0, non_bye_played: 0,
+    game_wins: 0, game_losses: 0, game_points: 0, games_played: 0,
+    rounds_played: 0,
   };
 }
 
-// Pure MTR Appendix E standings computation.
+// Pure MTR Appendix C standings computation (MTR 2026-02-27; PRD v1.2 and
+// earlier counted draws as 0 and left byes out of MWP).
 //
-// Key invariant: OMW% floor (0.33) is applied to each opponent's MWP individually
-// before averaging — NOT to the final average. Applying the floor to the average
-// is the common implementation mistake described in PRD §5.4.
+//   MWP = match points / (3 × rounds played)   — a draw is 1 point, a bye 3
+//   GWP = game points / (3 × games played)     — a drawn game is 1 point
+//
+// A bye is a 2-0 win in the receiver's own MWP and GWP, as everyone sees them,
+// but is not an opponent: it is absent from the receiver's opponent list.
+// An intentional draw with no games recorded is 0-0-3 (MTR §2.5).
+//
+// Key invariant: the 0.33 floor is applied to each opponent's MWP/GWP
+// individually before averaging — NOT to the final average.
 //
 // throughRound lets callers compute historical standings without filtering records.
 export function computeStandings(
@@ -77,9 +84,11 @@ export function computeStandings(
       if (t) {
         t.match_points += 3;
         t.match_wins += 1;
+        t.rounds_played += 1;
         t.game_wins += 2;
+        t.game_points += 6;
         t.games_played += 2;
-        // Bye excluded from non_bye_* and opponent list (PRD §5.4)
+        // Not added to the opponent list (MTR App. C, Byes)
       }
       continue;
     }
@@ -91,11 +100,11 @@ export function computeStandings(
 
     opponents.get(r.player1_id)!.push(r.player2_id);
     opponents.get(r.player2_id)!.push(r.player1_id);
-    t1.non_bye_played += 1;
-    t2.non_bye_played += 1;
+    t1.rounds_played += 1;
+    t2.rounds_played += 1;
 
     if (r.outcome === 'double_loss') {
-      // Stored game counts are 0-0-0; app credits 2 game losses / 2 games played each (PRD §6.3 comment)
+      // Stored game counts are 0-0-0; recorded as 0-2 for each player, as WER did
       t1.match_losses += 1;
       t2.match_losses += 1;
       t1.game_losses += 2; t1.games_played += 2;
@@ -103,19 +112,23 @@ export function computeStandings(
       continue;
     }
 
-    // For all other outcomes, game stats derive directly from stored columns.
-    // draw (1-1-1): gTotal = 1+1+1 = 3; intentional_draw: gTotal = 0+0+0 = 0.
+    // For all other outcomes, game stats derive from the stored columns,
+    // except an intentional draw stored 0-0-0, which counts as 0-0-3.
     const gTotal = r.player1_game_wins + r.player2_game_wins + r.games_drawn;
-    t1.game_wins += r.player1_game_wins; t1.game_losses += r.player2_game_wins; t1.games_played += gTotal;
-    t2.game_wins += r.player2_game_wins; t2.game_losses += r.player1_game_wins; t2.games_played += gTotal;
+    const drawn = r.outcome === 'intentional_draw' && gTotal === 0 ? 3 : r.games_drawn;
+    const played = r.player1_game_wins + r.player2_game_wins + drawn;
+    t1.game_wins += r.player1_game_wins; t1.game_losses += r.player2_game_wins; t1.games_played += played;
+    t2.game_wins += r.player2_game_wins; t2.game_losses += r.player1_game_wins; t2.games_played += played;
+    t1.game_points += 3 * r.player1_game_wins + drawn;
+    t2.game_points += 3 * r.player2_game_wins + drawn;
 
     switch (r.outcome) {
       case 'player1_win':
-        t1.match_points += 3; t1.match_wins += 1; t1.non_bye_wins += 1;
+        t1.match_points += 3; t1.match_wins += 1;
         t2.match_losses += 1;
         break;
       case 'player2_win':
-        t2.match_points += 3; t2.match_wins += 1; t2.non_bye_wins += 1;
+        t2.match_points += 3; t2.match_wins += 1;
         t1.match_losses += 1;
         break;
       case 'draw':
@@ -130,7 +143,7 @@ export function computeStandings(
   const gw = new Map<string, number>(
     [...totals.entries()].map(([id, t]) => [
       id,
-      t.games_played === 0 ? FLOOR : Math.max(FLOOR, t.game_wins / t.games_played),
+      t.games_played === 0 ? FLOOR : Math.max(FLOOR, t.game_points / (3 * t.games_played)),
     ]),
   );
 
@@ -141,9 +154,9 @@ export function computeStandings(
       let sum = 0;
       for (const oid of opp) {
         const ot = totals.get(oid)!;
-        sum += ot.non_bye_played === 0
+        sum += ot.rounds_played === 0
           ? FLOOR
-          : Math.max(FLOOR, ot.non_bye_wins / ot.non_bye_played);
+          : Math.max(FLOOR, ot.match_points / (3 * ot.rounds_played));
       }
       return [id, sum / opp.length];
     }),

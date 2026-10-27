@@ -3,19 +3,19 @@ import type { TournamentFormat } from '../types/tournament';
 export const MIN_PLAYERS = 8;
 export const MAX_PLAYERS = 512;
 
-// Match points — MTR Appendix E
+// Match points — MTR Appendix C
 export const MATCH_POINTS_WIN = 3;
 export const MATCH_POINTS_DRAW = 1;
 export const MATCH_POINTS_LOSS = 0;
 export const MATCH_POINTS_BYE = 3; // treated identically to a match win
 
-// Bye game record credit — MTR Appendix E
+// Bye game record credit — MTR Appendix C
 export const BYE_GAME_WIN_CREDIT = 2;
 export const BYE_GAMES_PLAYED_CREDIT = 2;
 
-// Per-opponent MWP floor before averaging — MTR Appendix E
+// Per-opponent MWP floor before averaging — MTR Appendix C
 export const OMW_FLOOR = 0.33;
-// Player's own GW% floor — MTR Appendix E
+// Player's own GW% floor — MTR Appendix C
 export const GW_FLOOR = 0.33;
 
 // Pairing engine edge weights — PRD Section 6.2 Step 4
