@@ -172,6 +172,15 @@ export async function claimGuestPlayer(
   try {
     await client.query('BEGIN');
 
+    // Lock order (db/advisoryLock.ts): the judge/player advisory lock before
+    // the player row. A row's tournament_id never changes, so reading it
+    // unlocked first is safe; a missing row is reported below as not found.
+    const { rows: tRows } = await client.query<{ tournament_id: string }>(
+      'SELECT tournament_id FROM tournament_players WHERE id = $1',
+      [playerId],
+    );
+    if (tRows[0]) await lockTournamentUserPair(client, tRows[0].tournament_id, userId);
+
     // Single-table lock with no JOIN — a joined FOR UPDATE would need `OF tp`.
     const { rows: playerRows } = await client.query<GuestPlayerRow>(
       `SELECT ${CLAIMED_PLAYER_COLUMNS}, guest_name, guest_email
@@ -219,12 +228,10 @@ export async function claimGuestPlayer(
       throw new AppError('INVALID_CLAIM', 'The organizer of a tournament cannot claim a player record in it');
     }
 
-    // Serializes against assignJudge's own check for a conflicting player
-    // row — without this, a concurrent judge assignment and this claim can
-    // each pass their own check before the other commits, leaving the same
-    // user as both a player and a judge. See lockTournamentUserPair.
-    await lockTournamentUserPair(client, player.tournament_id, userId);
-
+    // The advisory lock taken above serializes this check against
+    // assignJudge's own check for a conflicting player row — without it, a
+    // concurrent judge assignment and this claim could each pass their own
+    // check before the other commits. See lockTournamentUserPair.
     // Same conflict of interest assignJudge() and submitRegistration() already
     // guard in the other two directions: judges can enter results for any
     // match, so a judge holding a player row could self-report their own wins.
@@ -277,6 +284,9 @@ export async function linkPlayerToUser(
   let originalError: unknown;
   try {
     await client.query('BEGIN');
+    // Lock order (db/advisoryLock.ts): the judge/player advisory lock before
+    // the player row. Serializes the judge check below against assignJudge.
+    await lockTournamentUserPair(client, tournamentId, targetUserId);
 
     // Scoped by tournament_id in the lookup itself, never fetched globally and
     // compared afterwards — a valid player id from another tournament has to be
@@ -313,10 +323,6 @@ export async function linkPlayerToUser(
     if (targetUserId === organizerId) {
       throw new AppError('INVALID_LINK', 'The organizer cannot be linked to a player record in their own tournament');
     }
-
-    // Serializes against assignJudge's own check for a conflicting player
-    // row — see lockTournamentUserPair.
-    await lockTournamentUserPair(client, tournamentId, targetUserId);
 
     const { rows: judgeRows } = await client.query(
       'SELECT 1 FROM tournament_judges WHERE tournament_id = $1 AND user_id = $2',

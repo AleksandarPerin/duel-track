@@ -182,7 +182,7 @@ describe('computeStandings', () => {
   // GW% and OMW% of drawn matches and games are pinned against the MTR in
   // standings.engine.mtr.test.ts.
 
-  it('scores an intentional draw with 0 games recorded as 0-0-3 (MTR §2.5)', () => {
+  it('scores an intentional draw with 0 games recorded as one drawn game, 0-0-1', () => {
     const records = [id(1, 'A', 'B')];
     const entries = computeStandings(['A', 'B'], records, 1);
     const a = byId(entries, 'A');
@@ -191,7 +191,7 @@ describe('computeStandings', () => {
     expect(a.match_draws).toBe(1);
     expect(a.game_wins).toBe(0);
     expect(a.game_losses).toBe(0);
-    // Three drawn games: GW% = 3 / (3 × 3) = 0.3333
+    // One drawn game: GW% = 1 / (3 × 1) = 0.3333
     expect(a.gw_percent).toBe(0.3333);
     expect(b.match_points).toBe(1);
   });

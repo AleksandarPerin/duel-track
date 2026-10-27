@@ -81,7 +81,12 @@ export interface CsvImportResult {
   imported: number;
   skipped: number;
   errors: Array<{ row: number; message: string }>;
+  skipped_rows: Array<{ row: number; message: string }>;
 }
+
+// One key for "same name", used for in-file and existing-player duplicates
+// alike (JS, not Postgres lower(): they differ, e.g. on a final sigma).
+const nameKey = (name: string) => name.normalize('NFC').trim().toLowerCase();
 
 export async function importPlayersFromCsv(
   tournamentId: string,
@@ -97,10 +102,14 @@ export async function importPlayersFromCsv(
   }
 
   const rows = parseCsv(csvText);
-  const result: CsvImportResult = { imported: 0, skipped: 0, errors: [] };
+  const result: CsvImportResult = { imported: 0, skipped: 0, errors: [], skipped_rows: [] };
+  const skip = (row: number, message: string) => {
+    result.skipped++;
+    result.skipped_rows.push({ row, message });
+  };
 
   // Validate all rows up-front before touching the database
-  const validRows: Array<{ display_name: string; guest_email?: string }> = [];
+  const validRows: Array<{ row: number; display_name: string; guest_email?: string }> = [];
   // Deduplicate within this batch by normalised display_name
   const seenNames = new Set<string>();
 
@@ -125,24 +134,35 @@ export async function importPlayersFromCsv(
       }
     }
 
-    const nameKey = trimmedName.toLowerCase();
-    if (seenNames.has(nameKey)) {
-      result.skipped++;
+    const key = nameKey(trimmedName);
+    if (seenNames.has(key)) {
+      skip(rowNum, 'same name as an earlier row in this file');
       continue;
     }
-    seenNames.add(nameKey);
-    validRows.push({ display_name: trimmedName.normalize('NFC'), guest_email });
+    seenNames.add(key);
+    validRows.push({ row: rowNum, display_name: trimmedName.normalize('NFC'), guest_email });
   }
 
   if (validRows.length === 0) return result;
 
-  // Insert all valid rows in a single transaction with savepoints so individual
-  // failures (e.g. re-importing an already-registered guest) don't abort the batch.
+  // Insert all valid rows in a single transaction, each under a savepoint so a
+  // failing row (should the schema ever reject one) doesn't abort the batch.
   const client = await pool.connect();
   let originalError: unknown = null;
   try {
     await client.query('BEGIN');
     await client.query('SELECT id FROM tournaments WHERE id = $1 FOR UPDATE', [tournamentId]);
+
+    // Names already in the tournament are skipped like in-file duplicates, so
+    // importing the same file twice adds nobody new. Read under the
+    // tournament row lock, which every player insert takes.
+    const { rows: existing } = await client.query<{ name: string | null }>(
+      `SELECT COALESCE(tp.guest_name, u.display_name) AS name
+       FROM tournament_players tp LEFT JOIN users u ON u.id = tp.user_id
+       WHERE tp.tournament_id = $1`,
+      [tournamentId],
+    );
+    const existingNames = new Set(existing.flatMap((r) => (r.name ? [nameKey(r.name)] : [])));
 
     const { rows: seedRows } = await client.query<{ next_seed: string }>(
       `SELECT COALESCE(MAX(sort_seed), 0) + 1 AS next_seed
@@ -152,7 +172,11 @@ export async function importPlayersFromCsv(
     let nextSeed = Number(seedRows[0]!.next_seed);
 
     for (let i = 0; i < validRows.length; i++) {
-      const { display_name, guest_email } = validRows[i]!;
+      const { row, display_name, guest_email } = validRows[i]!;
+      if (existingNames.has(nameKey(display_name))) {
+        skip(row, 'a player with this name is already in the tournament');
+        continue;
+      }
       const sp = `csv_row_${i}`;
       try {
         await client.query(`SAVEPOINT ${sp}`);
@@ -167,7 +191,7 @@ export async function importPlayersFromCsv(
         await client.query(`ROLLBACK TO SAVEPOINT ${sp}`);
         await client.query(`RELEASE SAVEPOINT ${sp}`);
         nextSeed--; // reclaim the seed not consumed
-        result.skipped++;
+        skip(row, 'could not be added');
       }
     }
 

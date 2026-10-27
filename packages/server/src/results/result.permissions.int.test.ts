@@ -64,13 +64,13 @@ describe('POST /api/tournaments/:id/pairings/:pairingId/result — who may enter
 
   // The judge/player rule should make this state impossible; if a row ever
   // slips through, the judge still must not report their own match.
-  it('refuses a judge entering the result of a match they play in', async () => {
+  it.each(['player1_id', 'player2_id'])('refuses a judge entering the result of a match they play in (seat %s)', async (seat) => {
     const { organizer, t } = await setup();
     const judge = await signUp(app, 'Judge Player');
     expectStatus(await organizer.post(`/api/tournaments/${t.id}/judges`, { user_id: judge.user!.id }), 201, 'assign judge');
     const own = t.pairings.find((p) => !p.is_bye)!;
     await pool.query(
-      'UPDATE tournament_players SET user_id = $1 WHERE id = (SELECT player1_id FROM pairings WHERE id = $2)',
+      `UPDATE tournament_players SET user_id = $1 WHERE id = (SELECT ${seat} FROM pairings WHERE id = $2)`,
       [judge.user!.id, own.id],
     );
 

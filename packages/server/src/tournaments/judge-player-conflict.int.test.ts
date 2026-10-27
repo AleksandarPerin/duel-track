@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import type { FastifyInstance, LightMyRequestResponse } from 'fastify';
 import { pool } from '../db/pool';
+import { lockTournamentUserPair } from '../db/advisoryLock';
 import {
   type Session, createTestApp, resetDb, signUp, createTournament, assignJudge, selfRegister,
 } from '../../test/harness';
@@ -147,9 +148,7 @@ describe('a tournament judge cannot also be a player', () => {
       const assigning = await pool.connect();
       try {
         await assigning.query('BEGIN');
-        await assigning.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', [
-          'judge-player-conflict', `${t.id}:${user.user!.id}`,
-        ]);
+        await lockTournamentUserPair(assigning, t.id, user.user!.id);
 
         let settled: LightMyRequestResponse | null = null;
         const pending = act().then((res) => { settled = res; return res; });

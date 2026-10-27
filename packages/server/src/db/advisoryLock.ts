@@ -6,9 +6,14 @@ import type { PoolClient } from 'pg';
 // this user already the other role?" — without this, two such sequences can
 // interleave so that neither's check sees the other's not-yet-committed
 // write, letting a user end up as both a player and a judge in the same
-// tournament. Take it before any lock on the tournaments row (assignJudge's
-// tournament_judges insert takes a key-share lock on that row while holding
-// this lock; the opposite order deadlocks). Must be called inside an existing
+// tournament. Lock order, everywhere: this advisory lock first, then the
+// tournaments row, then tournament_players rows. assignJudge's
+// tournament_judges insert takes a key-share lock on the tournaments row while
+// holding this lock, and reorderSeeds/pairing/drop lock the tournaments row
+// and then player rows, so taking this lock after either row lock can
+// deadlock. (decideRegistration locks its tournament_registrations row before
+// this lock; that is safe only because nothing holding this lock waits on a
+// registration row — keep it that way.) Must be called inside an existing
 // transaction on `client`;
 // pg_advisory_xact_lock auto-releases at COMMIT/ROLLBACK, so callers don't
 // need to unlock explicitly.

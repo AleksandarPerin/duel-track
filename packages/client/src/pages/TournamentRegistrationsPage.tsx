@@ -21,6 +21,12 @@ export function decisionErrorMessage(code: string): string {
   }
 }
 
+export function registrationWarning(registration: Pick<TournamentRegistrationView, 'email_matches_judge'>): string | null {
+  return registration.email_matches_judge
+    ? "This email belongs to one of this tournament's judges — check before approving."
+    : null;
+}
+
 function RegistrationRow({
   registration,
   onDecide,
@@ -30,6 +36,8 @@ function RegistrationRow({
 }) {
   const [deciding, setDeciding] = useState<'approved' | 'rejected' | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const warning = registration.status === 'pending' ? registrationWarning(registration) : null;
+  const warningId = `registration-warning-${registration.id}`;
 
   async function decide(decision: 'approved' | 'rejected') {
     setDeciding(decision);
@@ -49,6 +57,7 @@ function RegistrationRow({
         <span className="registration-row__name">{registration.display_name}</span>
         {registration.guest_email && <span className="registration-row__email">{registration.guest_email}</span>}
       </div>
+      {warning && <p id={warningId} className="registration-row__warning">{warning}</p>}
       {registration.status === 'pending' ? (
         <div className="registration-row__actions">
           <button
@@ -56,6 +65,7 @@ function RegistrationRow({
             className="button button--primary"
             disabled={deciding !== null}
             onClick={() => decide('approved')}
+            aria-describedby={warning ? warningId : undefined}
           >
             {deciding === 'approved' ? 'Approving…' : 'Approve'}
           </button>

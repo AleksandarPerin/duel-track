@@ -164,8 +164,15 @@ export async function listRegistrations(
     statusClause = `AND tr.status = $${params.length}`;
   }
 
+  // email_matches_judge warns the organizer about a signed-out (guest)
+  // sign-up using a judge's email: the judge/player rule binds accounts, so
+  // the organizer decides (product decision 2026-10-27).
   const { rows } = await pool.query<TournamentRegistrationView>(
-    `SELECT ${REGISTRATION_COLUMNS}
+    `SELECT ${REGISTRATION_COLUMNS},
+            (tr.user_id IS NULL AND EXISTS (
+               SELECT 1 FROM tournament_judges tj JOIN users ju ON ju.id = tj.user_id
+               WHERE tj.tournament_id = tr.tournament_id AND ju.email = lower(tr.guest_email)
+             )) AS email_matches_judge
      FROM tournament_registrations tr
      LEFT JOIN users u ON u.id = tr.user_id
      WHERE tr.tournament_id = $1 ${statusClause}

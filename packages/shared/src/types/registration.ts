@@ -15,6 +15,8 @@ export interface TournamentRegistration {
 // Joined view used in API responses
 export interface TournamentRegistrationView extends TournamentRegistration {
   display_name: string; // user.display_name or guest_name
+  // Organizer list only: a guest sign-up whose email belongs to a judge of this tournament
+  email_matches_judge?: boolean;
 }
 
 // Response shape for GET /api/public/register/:token — deliberately excludes

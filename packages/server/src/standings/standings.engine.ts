@@ -30,7 +30,38 @@ export interface StandingEntry {
   rank: number;
 }
 
-const FLOOR = 0.33;
+// Tiebreakers are kept as exact fractions and compared exactly; only the
+// stored and displayed values are rounded to 4 dp. Rounding first would tie
+// players whose values differ in the 5th decimal, and comparing floats would
+// split exact ties (e.g. two OMW% of 287/600 summed in a different order).
+interface Fraction { n: bigint; d: bigint } // d > 0, lowest terms
+
+function gcd(a: bigint, b: bigint): bigint {
+  a = a < 0n ? -a : a;
+  while (b) [a, b] = [b, a % b];
+  return a;
+}
+function frac(n: number | bigint, d: number | bigint): Fraction {
+  const N = BigInt(n), D = BigInt(d), g = gcd(N, D) || 1n;
+  return { n: N / g, d: D / g };
+}
+function add(a: Fraction, b: Fraction): Fraction { return frac(a.n * b.d + b.n * a.d, a.d * b.d); }
+function cmp(a: Fraction, b: Fraction): number {
+  const x = a.n * b.d - b.n * a.d;
+  return x > 0n ? 1 : x < 0n ? -1 : 0;
+}
+function atLeastFloor(f: Fraction): Fraction { return cmp(f, FLOOR) < 0 ? FLOOR : f; }
+function mean(values: Fraction[]): Fraction {
+  if (values.length === 0) return FLOOR;
+  const sum = values.reduce(add, frac(0, 1));
+  return frac(sum.n, sum.d * BigInt(values.length));
+}
+// Rounded half up to 4 dp (all values here are non-negative).
+function round4(f: Fraction): number {
+  return Number((f.n * 20000n + f.d) / (2n * f.d)) / 10000;
+}
+
+const FLOOR = frac(33, 100);
 
 interface Totals {
   match_points: number;
@@ -60,7 +91,10 @@ function zero(): Totals {
 //
 // A bye is a 2-0 win in the receiver's own MWP and GWP, as everyone sees them,
 // but is not an opponent: it is absent from the receiver's opponent list.
-// An intentional draw with no games recorded is 0-0-3 (MTR §2.5).
+// An intentional draw with no games recorded counts as one drawn game, 0-0-1:
+// the MTR is ambiguous (§2.5 "reported as 0-0-3" vs App. C "unplayed games
+// are worth 0 points"); product decision 2026-10-27 — reportedly what WER
+// recorded for IDs.
 //
 // Key invariant: the 0.33 floor is applied to each opponent's MWP/GWP
 // individually before averaging — NOT to the final average.
@@ -113,9 +147,9 @@ export function computeStandings(
     }
 
     // For all other outcomes, game stats derive from the stored columns,
-    // except an intentional draw stored 0-0-0, which counts as 0-0-3.
+    // except an intentional draw stored 0-0-0, which counts as 0-0-1.
     const gTotal = r.player1_game_wins + r.player2_game_wins + r.games_drawn;
-    const drawn = r.outcome === 'intentional_draw' && gTotal === 0 ? 3 : r.games_drawn;
+    const drawn = r.outcome === 'intentional_draw' && gTotal === 0 ? 1 : r.games_drawn;
     const played = r.player1_game_wins + r.player2_game_wins + drawn;
     t1.game_wins += r.player1_game_wins; t1.game_losses += r.player2_game_wins; t1.games_played += played;
     t2.game_wins += r.player2_game_wins; t2.game_losses += r.player1_game_wins; t2.games_played += played;
@@ -140,42 +174,28 @@ export function computeStandings(
   }
 
   // GW% per player (floor at 0.33; 0 games played → floor)
-  const gw = new Map<string, number>(
+  const gw = new Map<string, Fraction>(
     [...totals.entries()].map(([id, t]) => [
       id,
-      t.games_played === 0 ? FLOOR : Math.max(FLOOR, t.game_points / (3 * t.games_played)),
+      t.games_played === 0 ? FLOOR : atLeastFloor(frac(t.game_points, 3 * t.games_played)),
     ]),
   );
+  // MWP per player, floored; every opponent has played at least one round
+  const mwp = (t: Totals) => atLeastFloor(frac(t.match_points, 3 * Math.max(1, t.rounds_played)));
 
-  // OMW% per player: mean of per-opponent MWP, each individually floored at 0.33
-  const omw = new Map<string, number>(
-    [...opponents.entries()].map(([id, opp]) => {
-      if (opp.length === 0) return [id, FLOOR];
-      let sum = 0;
-      for (const oid of opp) {
-        const ot = totals.get(oid)!;
-        sum += ot.rounds_played === 0
-          ? FLOOR
-          : Math.max(FLOOR, ot.match_points / (3 * ot.rounds_played));
-      }
-      return [id, sum / opp.length];
-    }),
-  );
-
-  // OGW% per player: mean of opponents' GW% (already floored individually)
-  const ogw = new Map<string, number>(
-    [...opponents.entries()].map(([id, opp]) => {
-      if (opp.length === 0) return [id, FLOOR];
-      let sum = 0;
-      for (const oid of opp) sum += gw.get(oid)!;
-      return [id, sum / opp.length];
-    }),
-  );
-
-  const r4 = (n: number) => Math.round(n * 10000) / 10000;
+  // OMW% / OGW%: mean of the opponents' individually floored MWP / GW%
+  const keys = new Map(playerIds.map((id) => {
+    const opp = opponents.get(id)!;
+    return [id, {
+      omw: mean(opp.map((oid) => mwp(totals.get(oid)!))),
+      gw: gw.get(id)!,
+      ogw: mean(opp.map((oid) => gw.get(oid)!)),
+    }];
+  }));
 
   const entries: StandingEntry[] = playerIds.map((id) => {
     const t = totals.get(id)!;
+    const k = keys.get(id)!;
     return {
       player_id: id,
       match_points: t.match_points,
@@ -184,19 +204,19 @@ export function computeStandings(
       match_draws: t.match_draws,
       game_wins: t.game_wins,
       game_losses: t.game_losses,
-      omw_percent: r4(omw.get(id) ?? FLOOR),
-      gw_percent: r4(gw.get(id) ?? FLOOR),
-      ogw_percent: r4(ogw.get(id) ?? FLOOR),
+      omw_percent: round4(k.omw),
+      gw_percent: round4(k.gw),
+      ogw_percent: round4(k.ogw),
       rank: 0,
     };
   });
 
-  // Sort: match_points DESC, omw_percent DESC, gw_percent DESC, ogw_percent DESC
+  // Sort: match_points DESC, then exact OMW%, GW%, OGW% DESC. Array.sort is
+  // stable, so players tied on everything keep their playerIds order.
   entries.sort((a, b) => {
     if (a.match_points !== b.match_points) return b.match_points - a.match_points;
-    if (a.omw_percent !== b.omw_percent) return b.omw_percent - a.omw_percent;
-    if (a.gw_percent !== b.gw_percent) return b.gw_percent - a.gw_percent;
-    return b.ogw_percent - a.ogw_percent;
+    const ka = keys.get(a.player_id)!, kb = keys.get(b.player_id)!;
+    return cmp(kb.omw, ka.omw) || cmp(kb.gw, ka.gw) || cmp(kb.ogw, ka.ogw);
   });
 
   entries.forEach((e, i) => { e.rank = i + 1; });

@@ -10,7 +10,9 @@ import type { MatchRecord, Outcome } from './standings.engine';
 //     (MWP = match points / 3·rounds, GWP = game points / 3·games, 0.33 floor
 //     per player, byes a 2-0 win in the receiver's own percentages and absent
 //     from their opponent list). The same values are in the DuelTrack
-//     Tiebreaker Oracle Sheet, sent to a judge on 2026-10-27 (no reply yet).
+//     Tiebreaker Oracle Sheet prepared for a judge on 2026-10-27.
+// Exceptions, marked where they occur: intentional draws and double losses,
+// which the MTR does not settle, follow product decisions.
 
 // [player1, player2 | null (bye), p1 game wins, p2 game wins, drawn games, outcome?]
 type Row = [string, string | null, number, number, number, Outcome?];
@@ -104,26 +106,33 @@ describe('MTR Appendix C — game-win percentage', () => {
   });
 });
 
-describe('MTR §2.5 — intentional draw with no games played is reported 0-0-3', () => {
+// An intentional draw with no games played: MTR §2.5 says it is "reported as
+// 0-0-3", but Appendix C also says "unplayed games are worth 0 points", so the
+// MTR is ambiguous here. Product decision (2026-10-27): count it as one drawn
+// game, 0-0-1 — reportedly what WER's ID hotkey recorded ("I believe DCIR was
+// 0-0, and WER 0-0-1, but I'm not positive", Scott Marshall, Magic Judges
+// forum 2013, apps.magicjudges.org/forum/topic/5455). Values are computed from
+// that rule, not taken from an MTR example.
+describe('intentional draw with no games played counts as 0-0-1', () => {
   // Round 1: A beat B 2-0, C beat D 2-0. Round 2: A and C ID; B beat D 2-0.
   const row = standings('ABCD', [
     [['A', 'B', 2, 0, 0], ['C', 'D', 2, 0, 0]],
     [['A', 'C', 0, 0, 0, 'intentional_draw'], ['B', 'D', 2, 0, 0]],
   ]);
 
-  it('adds three drawn games: A has (6 + 3) / 15 = 0.60 (oracle sheet example 5)', () => {
-    expect(row('A').gw_percent).toBe(0.6);
-    expect(row('C').gw_percent).toBe(0.6);
+  it('gives each player 1 match point', () => {
+    expect(row('A')).toMatchObject({ match_points: 4, match_draws: 1 });
+    expect(row('C')).toMatchObject({ match_points: 4, match_draws: 1 });
   });
 
-  it("feeds the 0-0-3 game record and the drawn match point into opponents' percentages", () => {
-    // B's opponents: A (4/6, GW 0.6) and D (0/6 → 0.33, GW 0.33)
-    expect(row('B')).toMatchObject({ omw_percent: 0.4983, ogw_percent: 0.465 });
+  it('adds one drawn game: A has (6 + 1) / (3 × 3) = 0.7778', () => {
+    expect(row('A').gw_percent).toBe(0.7778);
+    expect(row('C').gw_percent).toBe(0.7778);
   });
 
-  it('leaves a player whose only match was an ID just above the floor: 3/9 = 0.3333', () => {
-    const only = standings('AB', [[['A', 'B', 0, 0, 0, 'intentional_draw']]]);
-    expect(only('A')).toMatchObject({ match_points: 1, gw_percent: 0.3333, omw_percent: 0.3333 });
+  it("feeds that game record into opponents' percentages", () => {
+    // B's opponents: A (MWP 4/6, GW 7/9) and D (MWP 0 → 0.33, GW 0 → 0.33)
+    expect(row('B')).toMatchObject({ omw_percent: 0.4983, ogw_percent: 0.5539 });
   });
 });
 
@@ -199,5 +208,65 @@ describe('MTR Appendix C — a drawn match between two opponents decides 1st pla
   it("ranks B 1st on OMW% (A, E, C have 4, 4 and 6 of 9 points: 0.5185) over C (0.4444)", () => {
     expect(row('B')).toMatchObject({ match_points: 6, omw_percent: 0.5185, gw_percent: 0.5556, rank: 1 });
     expect(row('C')).toMatchObject({ match_points: 6, omw_percent: 0.4444, gw_percent: 0.625, rank: 2 });
+  });
+});
+
+// Appendix C's two worked OMW% examples (printed as images on p. 53 of the
+// PDF): a 6–2–0 player whose opponents went 4–4–0, 7–1–0, 1–3–1, 3–3–1,
+// 6–2–0, 5–2–1, 4–3–1 and 6–1–1 — the 1–3–1 opponent's 4/15 = 0.27 is raised
+// to 0.33 — has OMW% 4.94/8 = 0.62; with a bye in place of the 4–4–0
+// opponent, 4.44/7 = 0.63. The MTR rounds to 2 dp; exact: 0.6164 and 0.6330.
+describe('MTR Appendix C — worked OMW% examples', () => {
+  // Builds P's 8 rounds against opponents with the given final records. P
+  // beats every opponent except those in `beatP`; each opponent's remaining
+  // results are against one-off filler players.
+  function event(records: ([number, number, number] | 'bye')[], beatP: number[]) {
+    const recs: MatchRecord[] = [];
+    const ids = ['P'];
+    let filler = 0;
+    const match = (round: number, a: string, b: string, result: 'a' | 'b' | 'draw'): MatchRecord => ({
+      round_number: round, player1_id: a, player2_id: b, is_bye: false,
+      player1_game_wins: result === 'a' ? 2 : 1, player2_game_wins: result === 'b' ? 2 : result === 'draw' ? 1 : 0,
+      games_drawn: result === 'draw' ? 1 : 0,
+      outcome: result === 'a' ? 'player1_win' : result === 'b' ? 'player2_win' : 'draw',
+    });
+    records.forEach((r, i) => {
+      const round = i + 1;
+      if (r === 'bye') {
+        recs.push({ round_number: round, player1_id: 'P', player2_id: null, is_bye: true,
+          player1_game_wins: 0, player2_game_wins: 0, games_drawn: 0, outcome: null });
+        return;
+      }
+      const o = `O${round}`;
+      ids.push(o);
+      let [w, l, d] = r;
+      if (beatP.includes(round)) { recs.push(match(round, o, 'P', 'a')); w--; } else { recs.push(match(round, 'P', o, 'a')); l--; }
+      // One match per round for every player: O plays P in `round` and its
+      // filler matches in the other rounds 1..8.
+      const freeRounds = [1, 2, 3, 4, 5, 6, 7, 8].filter((x) => x !== round);
+      const vsFiller = (result: 'a' | 'b' | 'draw') => {
+        const f = `F${++filler}`;
+        ids.push(f);
+        recs.push(match(freeRounds.shift()!, o, f, result));
+      };
+      for (let k = 0; k < w; k++) vsFiller('a');
+      for (let k = 0; k < l; k++) vsFiller('b');
+      for (let k = 0; k < d; k++) vsFiller('draw');
+    });
+    return computeStandings(ids, recs, 8).find((s) => s.player_id === 'P')!;
+  }
+
+  const opponents: [number, number, number][] = [
+    [4, 4, 0], [7, 1, 0], [1, 3, 1], [3, 3, 1], [6, 2, 0], [5, 2, 1], [4, 3, 1], [6, 1, 1],
+  ];
+
+  it('is 0.62 (exact 0.6164) for the first example', () => {
+    const p = event(opponents, [2, 8]);
+    expect(p).toMatchObject({ match_wins: 6, match_losses: 2, omw_percent: 0.6164 });
+  });
+
+  it('is 0.63 (exact 0.6330) when a bye replaces the 4–4–0 opponent', () => {
+    const p = event(['bye', ...opponents.slice(1)], [2, 8]);
+    expect(p).toMatchObject({ match_wins: 6, match_losses: 2, omw_percent: 0.633 });
   });
 });

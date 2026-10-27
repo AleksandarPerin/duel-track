@@ -26,30 +26,39 @@ export const PAIRING_BRACKET_CROSS_PENALTY = 100;
 // Blossom algorithm backtracking limit — PRD Section 6.2 Step 8
 export const PAIRING_BACKTRACK_LIMIT = 10_000;
 
-// MTR Appendix E round count table
-const ROUND_COUNT_TABLE: Array<{ min: number; max: number; rounds: number }> = [
-  { min: 8,   max: 8,   rounds: 3 },
-  { min: 9,   max: 16,  rounds: 4 },
+// MTR (27 February 2026) Appendix E — Recommended Number of Rounds in Swiss
+// Tournaments. Required for Premier tournaments; "may be used at the
+// Tournament Organizer's discretion for non-Premier tournaments", which is why
+// DuelTrack still lets an 8-player event run Swiss rounds.
+export type RoundRecommendation =
+  | { swissRounds: 0; playoff: 'single-elimination'; singleEliminationRounds: number }
+  | { swissRounds: number; playoff: 'top-4' | 'top-8' };
+
+// 17+ players: Swiss rounds, then Top 8
+const SWISS_ROUND_TABLE: Array<{ min: number; max: number; rounds: number }> = [
   { min: 17,  max: 32,  rounds: 5 },
   { min: 33,  max: 64,  rounds: 6 },
   { min: 65,  max: 128, rounds: 7 },
   { min: 129, max: 226, rounds: 8 },
   { min: 227, max: 409, rounds: 9 },
-  { min: 410, max: 512, rounds: 10 },
+  { min: 410, max: Infinity, rounds: 10 },
 ];
 
-export function recommendedRounds(playerCount: number): number {
-  if (playerCount < MIN_PLAYERS || playerCount > MAX_PLAYERS) {
-    throw new Error(
-      `Player count ${playerCount} is outside supported range (${MIN_PLAYERS}–${MAX_PLAYERS})`
-    );
+// boosterDraftTop8: the Top 8 is a booster draft ("Limited Format with Booster
+// Draft in Playoff") — a property of the playoff, not the Swiss format.
+export function recommendedRounds(
+  playerCount: number,
+  { boosterDraftTop8 = false }: { boosterDraftTop8?: boolean } = {},
+): RoundRecommendation {
+  if (playerCount < 5 || playerCount > MAX_PLAYERS) {
+    throw new Error(`No MTR round recommendation for ${playerCount} players (5–${MAX_PLAYERS})`);
   }
-  const entry = ROUND_COUNT_TABLE.find(
-    (r) => playerCount >= r.min && playerCount <= r.max
-  );
-  // Unreachable given the bounds check above, but satisfies TS
-  if (!entry) throw new Error(`No round count entry for ${playerCount} players`);
-  return entry.rounds;
+  if (playerCount <= 8) return { swissRounds: 0, playoff: 'single-elimination', singleEliminationRounds: 3 };
+  if (playerCount <= 16) {
+    return boosterDraftTop8 ? { swissRounds: 4, playoff: 'top-8' } : { swissRounds: 5, playoff: 'top-4' };
+  }
+  const entry = SWISS_ROUND_TABLE.find((r) => playerCount >= r.min && playerCount <= r.max)!;
+  return { swissRounds: entry.rounds, playoff: 'top-8' };
 }
 
 // Default round timers per format — Constructed 50 min, Limited 60 min

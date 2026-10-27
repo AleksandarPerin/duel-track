@@ -83,6 +83,8 @@ export async function enterResult(
     }
     // The organizer or a judge assigned to this tournament may enter results.
     // Advancing rounds, dropping players, and bracket actions remain organizer-only.
+    // An organizer who also plays enters their own match's result like any
+    // player — intended (PRD RES-08a); only judges are barred from that below.
     if (pairing.organizer_id !== actorId && !pairing.is_judge) {
       throw new AppError('FORBIDDEN', 'Only the tournament organizer or an assigned judge can enter results');
     }

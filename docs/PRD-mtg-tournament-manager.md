@@ -1,6 +1,6 @@
 # Product Requirements Document: DuelTrack — MtG Tournament Manager
 
-**Version:** 1.2 (Phase 1 Approved)
+**Version:** 1.4 (Phase 1 Approved)
 **Status:** Approved for Phase 1 Development
 **Date:** 2026-06-27
 **Owner:** Product Team
@@ -10,6 +10,7 @@
 > - **v1.0 → v1.1:** Domain corrections, implementation fixes, and completeness additions — see [Appendix A](#appendix-a--review-notes).
 > - **v1.1 → v1.2:** All Phase 1 open questions resolved (OQ-02, OQ-04, OQ-05, OQ-06, OQ-08) — see [Appendix B](#appendix-b--v12-open-question-resolutions). Stale v1.0 draft (`PRD.md`) retired.
 > - **v1.2 → v1.3:** §5.4 tiebreaker rules corrected to the MTR (27 February 2026): draws worth 1 point in MWP and GWP, byes counted in the receiver's MWP, intentional draws recorded 0-0-3. Tiebreakers are MTR Appendix C, not E (Appendix A's v1.1 correction was itself wrong).
+> - **v1.3 → v1.4:** Intentional draw counted as one drawn game, 0-0-1 (product decision: the MTR is ambiguous between §2.5 "reported as 0-0-3" and App. C "unplayed games are worth 0 points"; 0-0-1 is reportedly what WER recorded). §5.2 round table corrected to MTR Appendix E. Judge/player rule and judge-email warning on guest sign-ups (REG-09). An organizer who plays enters their own results (RES-08a). Double-loss glossary and sourcing corrected.
 
 ---
 
@@ -173,7 +174,8 @@ Tournament organizers and/or players can register participants for an event. Reg
 | REG-05 | TO can drop players before round 1 starts (full removal) or between rounds (graceful drop) | Must Have | Pre-round-1 drop removes player entirely; post-round-1 drop preserves past results and record for tiebreaker calculations |
 | REG-06 | Players with existing accounts auto-fill profile data | Should Have | Known email pre-populates name and player number |
 | REG-07 | TO can assign a first-round bye at registration time | Should Have | Bye player is excluded from round 1 pairings; receives 3 match points and a 2-0-0 game record credit for round 1; bye_received count incremented by 1 |
-| REG-08 | Duplicate name/email detection with TO override | Should Have | Warning shown; TO can confirm or merge |
+| REG-08 | Duplicate name/email detection with TO override | Should Have | Warning shown; TO can confirm or merge. Current state: CSV import skips a row whose name matches an earlier row or an existing player (Unicode case-insensitive) and reports each skipped row with its reason; the TO cannot yet override a skip (two different players with the same name need one added manually) |
+| REG-09 | A judge of a tournament can never also be a player in it (stricter than MTR §1.4, which lets officials play non-Premier events at Regular REL; a TO may set stricter rules). Adding, approving, claiming or linking a judge's account as a player is refused, and a user with a pending sign-up cannot be made a judge until it is decided. A signed-out (guest) sign-up whose email belongs to a judge is flagged to the TO, who approves or rejects it | Must Have | Refusals return 409; the flagged sign-up shows a warning in the TO's sign-up list |
 
 #### Data Captured per Player
 
@@ -221,18 +223,21 @@ DRAFT → REGISTRATION_OPEN → IN_PROGRESS → TOP_CUT → COMPLETED → ARCHIV
 
 #### MTR Recommended Round Count (auto-calculated, per MTR Appendix E)
 
-| Players | Swiss Rounds |
-|---------|-------------|
-| 8 | 3 |
-| 9–16 | 4 |
-| 17–32 | 5 |
-| 33–64 | 6 |
-| 65–128 | 7 |
-| 129–226 | 8 |
-| 227–409 | 9 |
-| 410–512 | 10 |
+MTR Appendix E (27 February 2026). Required for Premier tournaments; for non-Premier tournaments it "may be used at the Tournament Organizer's discretion" — DuelTrack shows it as the default and the TO can override it (TRN-02), which is why an 8-player event may still run Swiss rounds.
 
-> **Implementation note:** The minimum supported player count is 8. Events with fewer than 8 players cannot be started. The original draft listed "4–8 → 3 rounds" in this table; this was incorrect — the MTR does not define a round count for fewer than 8 players.
+| Players | Swiss Rounds | Playoff |
+|---------|-------------|---------|
+| 5–8 | none — 3 single-elimination rounds | (single elimination) |
+| 9–16, Limited event whose Top 8 is a booster draft | 4 | Top 8 |
+| 9–16, all other events | 5 | Top 4 |
+| 17–32 | 5 | Top 8 |
+| 33–64 | 6 | Top 8 |
+| 65–128 | 7 | Top 8 |
+| 129–226 | 8 | Top 8 |
+| 227–409 | 9 | Top 8 |
+| 410–512 | 10 | Top 8 |
+
+> **Implementation note:** The minimum supported player count is 8. Events with fewer than 8 players cannot be started, so the 5–7 rows are informational. "Booster draft in playoff" is a property of the playoff, not the format (e.g. Swiss Sealed with a Top 8 draft gets 4 rounds); DuelTrack has no draft-playoff setting yet, so it recommends 5 rounds and Top 4 for 9–16 players unless told otherwise. Earlier versions of this table listed "8 → 3 Swiss rounds" and "9–16 → 4" for all formats; both misstated Appendix E (corrected in v1.4).
 
 ---
 
@@ -275,7 +280,8 @@ Table judges and the head judge record match results. The system recalculates st
 | RES-06 | Players can find their current pairing by name search or table number | Must Have | Results returned in under 500 ms |
 | RES-07 | Dropped player handling: open match resolved automatically as a match loss for the dropped player; opponent receives a 2-0 game record win | Must Have | No manual result entry required when a drop is triggered via the drop action |
 | RES-08 | Judge role can enter and edit results for the current round but cannot advance rounds or modify tournament settings | Must Have | Role enforced server-side on every mutation endpoint |
-| RES-09 | Intentional Draw (ID) must be explicitly selected via a dedicated control with a confirmation dialog; it must not appear as a default result option | Must Have | An ID with no games played is recorded 0-0-3 (MTR §2.5): three drawn games, 3 game points of 9 for each player's GW%; both receive 1 match point |
+| RES-08a | An organizer who also plays (MTR §1.4 allows officials to play only in non-Premier event types at Regular REL) enters the result of their own match like any player; a judge can never be a player (see REG) and can never enter the result of a match they play in | Must Have | Organizer self-entry is intended behaviour, not a gap |
+| RES-09 | Intentional Draw (ID) must be explicitly selected via a dedicated control with a confirmation dialog; it must not appear as a default result option | Must Have | An ID with no games played is stored 0-0-0 and counted in tiebreakers as one drawn game, 0-0-1: 1 game point of 3 for each player's GW%; both receive 1 match point. (Product decision: the MTR is ambiguous — §2.5 says IDs are "reported as 0-0-3", App. C says "unplayed games are worth 0 points"; 0-0-1 is reportedly what WER's ID hotkey recorded — Scott Marshall, Magic Judges forum 2013: "I believe DCIR was 0-0, and WER 0-0-1, but I'm not positive.") |
 | RES-10 | Export standings as CSV or PDF at any point during the tournament | Should Have | Download available within 2 seconds; includes all tiebreaker columns |
 
 #### Standings Display Columns
@@ -318,10 +324,10 @@ GW%(P) = max(0.33, P.game_points / (3 × P.games_played))
 ```
 
 - Bye credit: a 2-0 win — 6 game points, 2 games played.
-- Intentional Draw with no games played: recorded 0-0-3 (MTR §2.5) — 3 game points, 3 games played.
+- Intentional Draw with no games played: stored 0-0-0, counted as one drawn game (0-0-1) — 1 game point, 1 game played. Product decision; the MTR is ambiguous (§2.5 "reported as 0-0-3" vs App. C "unplayed games are worth 0 points").
 - 1-1-1 match draw: 4 game points, 3 games played each (GW% 0.4444).
 - 2-1 match: winner 6 game points, loser 3; 3 games played each.
-- Double Match Loss: each player recorded 0-2 — 0 game points, 2 games played. (The MTR does not cover double losses; this follows how WER recorded them.)
+- Double Match Loss: each player recorded 0-2 — 0 game points, 2 games played. (The MTR does not cover double losses; 0 match points follows from a match loss being 0 points, and the 0-2 record follows how WER recorded a double match loss, per 2019 Magic Judges forum posts. Not an official scoring rule.)
 
 Source: Magic Tournament Rules, 27 February 2026 release, §2.5 and Appendix C. v1.2 of this section counted draws as 0 and left byes out of MWP; both contradicted the MTR.
 
@@ -838,10 +844,10 @@ CREATE INDEX idx_audit_tournament ON audit_log(tournament_id, created_at DESC);
 | **Bracket (score bracket / pod)** | The set of all active players with the same number of match points in a given round. Players are paired within their bracket before cross-bracket pairing is considered. |
 | **Bye** | A round in which a player has no opponent. The player automatically receives 3 match points and a 2-0-0 game record credit, both counted in their own MWP and GW%. The bye is not an opponent: it is left out of the player's opponent list for OMW% and OGW%. |
 | **DCI number** | A player identifier formerly issued by Wizards of the Coast for organised play. Discontinued in 2020 and superseded by WPN player numbers. |
-| **Double Match Loss** | A penalty result (e.g., both players receive a Game Loss penalty totalling a match loss each) recorded as 0-2 / 0-2. Both players receive 0 match points. |
+| **Double Match Loss** | Both players lose the match, e.g. both receive a Match Loss penalty (simultaneous Game Losses offset and do not cause one; in digital play, neither player responding to a judge after a disconnect — Digital IPG 2.5). Recorded as 0-2 / 0-2; both players receive 0 match points. |
 | **Drop** | A player who withdraws from a tournament after it has started. Their past results are retained for opponents' tiebreaker calculations. They receive a match loss for any open match at the time of the drop. |
-| **GW%** | Game Win Percentage. `max(0.33, game_points / (3 × games_played))`; game points = 3 per game won + 1 per drawn game. Bye credit: 2-0 (6 game points, 2 games). Intentional Draw with no games played: 0-0-3 (3 game points, 3 games). |
-| **ID (Intentional Draw)** | A match result where both players mutually agree to record a draw without playing. Both receive 1 match point. Recorded 0-0-3 (MTR §2.5): three drawn games, worth 3 of 9 game points. |
+| **GW%** | Game Win Percentage. `max(0.33, game_points / (3 × games_played))`; game points = 3 per game won + 1 per drawn game. Bye credit: 2-0 (6 game points, 2 games). Intentional Draw with no games played: counted as 0-0-1 (1 game point, 1 game). |
+| **ID (Intentional Draw)** | A match result where both players mutually agree to record a draw without playing. Both receive 1 match point. Counted as one drawn game, 0-0-1 (1 of 3 game points) — see RES-09. |
 | **LGS** | Local Game Store — a retail store that hosts MtG Organised Play events. |
 | **Match** | A best-of-three contest between two players resulting in a match win, match draw, or match loss. |
 | **Match Points** | Cumulative score: Win = 3, Draw = 1, Loss = 0, Bye = 3. |

@@ -39,6 +39,15 @@ describe('who may add players or decide registrations', () => {
         written: () => count('SELECT 1 FROM tournament_players WHERE tournament_id = $1', [t.id]),
       };
     },
+    'POST /api/tournaments/:id/players/import (CSV)': async (organizer: Session) => {
+      const t = await createTournament(organizer);
+      return {
+        t,
+        ok: 200,
+        call: (s: Session) => s.post(`/api/tournaments/${t.id}/players/import`, 'display_name\nWalk-in\n'),
+        written: () => count('SELECT 1 FROM tournament_players WHERE tournament_id = $1', [t.id]),
+      };
+    },
     'POST /api/tournaments/:id/registrations/:rid/decision': async (organizer: Session) => {
       const t = await createTournament(organizer);
       const reg = await selfRegister(organizer, t.id, await signUp(app, 'Registrant'));

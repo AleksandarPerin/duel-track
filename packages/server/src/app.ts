@@ -48,7 +48,8 @@ export async function buildApp() {
   setPoolLogger((msg, err) => app.log.error({ err }, msg));
 
   // app.close() releases the shared Postgres pool and Redis clients, so a
-  // process (or test file) that closes the app can exit cleanly.
+  // test file that closes the app can exit cleanly. (index.ts installs no
+  // shutdown handler, so production never calls close() today.)
   app.addHook('onClose', async () => {
     await Promise.allSettled([pool.end(), redis.quit(), closeBroadcaster()]);
   });
