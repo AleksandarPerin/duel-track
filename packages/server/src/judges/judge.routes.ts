@@ -25,6 +25,7 @@ function handleError(err: unknown, reply: FastifyReply) {
     FORBIDDEN: 403,
     INVALID_JUDGE: 422,
     JUDGE_ALREADY_ASSIGNED: 409,
+    JUDGE_HAS_PENDING_REGISTRATION: 409,
   };
   return reply.code(map[err.code] ?? 500).send({ error: err.code, message: err.message });
 }

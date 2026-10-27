@@ -27,6 +27,7 @@ function handleError(err: unknown, reply: FastifyReply) {
     REGISTRATION_ALREADY_DECIDED: 409,
     TOURNAMENT_NOT_EDITABLE: 409,
     PLAYER_ALREADY_REGISTERED: 409,
+    PLAYER_IS_JUDGE: 409,
   };
   return reply.code(map[err.code] ?? 500).send({ error: err.code, message: err.message });
 }

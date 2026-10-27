@@ -1,5 +1,6 @@
 import { pool } from '../db/pool';
 import { AppError } from '../errors/AppError';
+import { assertUserIsNotJudge } from '../judges/judgePlayerConflict';
 import { EDITABLE_STATUSES } from '../tournaments/tournament.service';
 import type { TournamentRegistrationView, RegistrationStatus, PublicTournamentInfo } from '@dueltrack/shared';
 
@@ -232,6 +233,12 @@ export async function decideRegistration(
     }
 
     if (decision === 'approved') {
+      // The registrant may have been made a judge after registering; refusing
+      // rolls back and leaves the registration pending for the organizer.
+      // Before the tournament row lock — see assertUserIsNotJudge.
+      if (registration.user_id) {
+        await assertUserIsNotJudge(client, tournamentId, registration.user_id);
+      }
       const { rows: tRows } = await client.query<{ status: string }>(
         'SELECT status FROM tournaments WHERE id = $1 FOR UPDATE',
         [tournamentId],
@@ -253,7 +260,7 @@ export async function decideRegistration(
       // that same transaction (including the recovery UPDATE below, even
       // COMMIT itself) fails with "current transaction is aborted" until
       // either the whole transaction rolls back or it's rewound to a
-      // savepoint — same technique importPlayersFromCsv uses per-row.
+      // savepoint — same technique importPlayersFromCsv (player.csvImport.service.ts) uses per-row.
       await client.query('SAVEPOINT approve_insert');
       try {
         if (registration.user_id) {

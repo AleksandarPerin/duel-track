@@ -6,7 +6,10 @@ import type { PoolClient } from 'pg';
 // this user already the other role?" — without this, two such sequences can
 // interleave so that neither's check sees the other's not-yet-committed
 // write, letting a user end up as both a player and a judge in the same
-// tournament. Must be called inside an existing transaction on `client`;
+// tournament. Take it before any lock on the tournaments row (assignJudge's
+// tournament_judges insert takes a key-share lock on that row while holding
+// this lock; the opposite order deadlocks). Must be called inside an existing
+// transaction on `client`;
 // pg_advisory_xact_lock auto-releases at COMMIT/ROLLBACK, so callers don't
 // need to unlock explicitly.
 //

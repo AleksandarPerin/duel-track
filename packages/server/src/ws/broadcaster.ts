@@ -50,6 +50,10 @@ subscriber.connect().catch((err) => {
   console.error('Failed to connect tournament events subscriber', err);
 });
 
+export async function closeBroadcaster(): Promise<void> {
+  await subscriber.quit();
+}
+
 export function joinTournamentRoom(tournamentId: string, socket: WebSocket): void {
   let sockets = rooms.get(tournamentId);
   if (!sockets) {

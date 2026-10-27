@@ -86,8 +86,9 @@ export async function enterResult(
     if (pairing.organizer_id !== actorId && !pairing.is_judge) {
       throw new AppError('FORBIDDEN', 'Only the tournament organizer or an assigned judge can enter results');
     }
-    // Defense-in-depth: assignJudge()/submitRegistration() already block a
-    // single user from being both a judge and a player in the same
+    // Defense-in-depth: assignJudge(), submitRegistration(), adding a
+    // registered player, approving a registration and profile claim/link all
+    // block a single user from being both a judge and a player in the same
     // tournament, but if that invariant were ever violated a judge must
     // still never be able to self-report the outcome of their own match.
     if (
