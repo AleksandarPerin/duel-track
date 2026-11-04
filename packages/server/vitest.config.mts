@@ -3,6 +3,14 @@ import { TEST_ENV } from './test/env.mts';
 
 export default defineConfig({
   test: {
+    // Floors at the measured coverage (`npm run test:coverage`); raise them as
+    // tests are added, never lower them.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.ts'],
+      exclude: ['src/**/*.test.ts', 'src/index.ts'],
+      thresholds: { statements: 47, branches: 38, functions: 46, lines: 49 },
+    },
     projects: [
       {
         test: {

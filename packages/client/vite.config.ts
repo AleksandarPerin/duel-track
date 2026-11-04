@@ -1,3 +1,4 @@
+/// <reference types="vitest/config" />
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
@@ -32,6 +33,16 @@ export default defineConfig({
   resolve: {
     alias: {
       '@dueltrack/shared': resolve(__dirname, '../shared/src/index.ts'),
+    },
+  },
+  test: {
+    // Floors at the measured coverage (`npm run test:coverage`); raise them as
+    // tests are added, never lower them.
+    coverage: {
+      provider: 'v8',
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: ['src/**/*.test.{ts,tsx}', 'src/main.tsx'],
+      thresholds: { statements: 30, branches: 27, functions: 26, lines: 30 },
     },
   },
   server: {
