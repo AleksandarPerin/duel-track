@@ -16,8 +16,8 @@
     "docker:reset": "docker compose down -v && docker compose up -d"
   },
   "devDependencies": {
-    "@vitest/coverage-v8": "^4.1.9",
-    "concurrently": "^8.2.2",
-    "typescript": "^5.4.5"
+    "@vitest/coverage-v8": "^5.0.5",
+    "concurrently": "^10.0.6",
+    "typescript": "^7.0.2"
   }
 }
