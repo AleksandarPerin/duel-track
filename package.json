@@ -10,6 +10,7 @@
     "build": "npm run build -w @dueltrack/shared && npm run build -w @dueltrack/server && npm run build -w @dueltrack/client",
     "test": "npm run test --workspaces --if-present",
     "test:coverage": "npm run test:coverage --workspaces --if-present",
+    "seed:demo": "npm run seed:demo -w @dueltrack/server",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down",
     "docker:reset": "docker compose down -v && docker compose up -d"

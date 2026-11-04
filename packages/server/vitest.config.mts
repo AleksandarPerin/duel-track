@@ -8,8 +8,8 @@ export default defineConfig({
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/**/*.test.ts', 'src/index.ts'],
-      thresholds: { statements: 47, branches: 38, functions: 46, lines: 49 },
+      exclude: ['src/**/*.test.ts', 'src/index.ts', 'src/demo/seed-demo.cli.ts'],
+      thresholds: { statements: 48, branches: 39, functions: 48, lines: 50 },
     },
     projects: [
       {
